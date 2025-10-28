@@ -25,7 +25,8 @@ export abstract class Memory extends CircuitElement {
   }
 
   read(address: number, length: number = 1): BitString[] {
-    return this.data.slice(address, length);
+    // Use start + count semantics: return `length` words starting at `address`.
+    return this.data.slice(address, address + length);
   }
 
   write(address: number, value: BitString[]): void {
@@ -50,14 +51,14 @@ export abstract class Memory extends CircuitElement {
       );
     }
 
+    // Extract words from the most-significant bit end without creating
+    // empty BitString instances. Build words by slicing the underlying
+    // binary string representation.
+    const bits = value.toString();
     let i = 0;
-    while (value.getWidth()) {
-      const word = value.msb(this.wordSize);
-
-      this.data[i] = word;
-
-      value = value.truncate(value.getWidth() - this.wordSize);
-      i++;
+    for (let pos = 0; pos < bits.length; pos += this.wordSize) {
+      const slice = bits.substring(pos, pos + this.wordSize);
+      this.data[i++] = new BitString(slice);
     }
   }
 }
