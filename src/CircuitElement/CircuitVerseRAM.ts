@@ -32,12 +32,16 @@ export class CircuitVerseRAM extends Memory {
       output.setValue(BitString.low(this.wordSize));
     } else {
       const idx = address.getValue()?.toUnsigned();
-      if (idx) {
+      if (idx !== undefined && idx !== null) {
         if (BitString.high().equals(write.getValue())) {
-          this.data[idx] = input.getValue() ?? BitString.low(this.wordSize);
+          if (idx < this.data.length) {
+            this.data[idx] = input.getValue() ?? BitString.low(this.wordSize);
+          }
         }
 
-        output.setValue(this.data[idx]);
+        if (idx < this.data.length) {
+          output.setValue(this.data[idx]);
+        }
       }
     }
 
