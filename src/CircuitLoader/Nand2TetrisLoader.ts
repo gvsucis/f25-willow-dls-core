@@ -23,23 +23,64 @@ import { FileUtil } from "../Util/File";
 import Stream from "stream";
 
 // ===== Willow primitive elements (ADD HERE as Willow gains new elements) =====
-import { AndGate } from "../CircuitElement/AndGate";
-import { OrGate } from "../CircuitElement/OrGate";
-import { NotGate } from "../CircuitElement/NotGate";
-import { NandGate } from "../CircuitElement/NandGate";
-import { XorGate } from "../CircuitElement/XorGate";
-import { XnorGate } from "../CircuitElement/XnorGate";
+import {Add16} from "../CircuitElement/Add16"
+import {Adder} from "../CircuitElement/Adder"
+import {And16} from "../CircuitElement/And16"
+import {AndGate} from "../CircuitElement/AndGate"
+import {Bit} from "../CircuitElement/Bit"
+// import {BitSelector} from "../CircuitElement/BitSelector"
+// import {BufferGate} from "../CircuitElement/BufferGate"
+// import {CircuitVerseALU} from "../CircuitElement/CircuitVerseALU"
+// import {CircuitVerseRAM} from "../CircuitElement/CircuitVerseRAM"
+// import {Clock} from "../CircuitElement/Clock"
+// import {Constant} from "../CircuitElement/Constant"
+// import {ControlledInverter} from "../CircuitElement/ControlledInverter"
+// import {Counter} from "../CircuitElement/Counter"
+import {DFlipFlop} from "../CircuitElement/DFlipFlop"
+// import {DLatch} from "../CircuitElement/DLatch"
+import {DMux4Way} from "../CircuitElement/DMux4Way"
+import {DMux8Way} from "../CircuitElement/DMux8Way"
+// import {Decoder} from "../CircuitElement/Decoder"
+import {Demultiplexer} from "../CircuitElement/Demultiplexer"
+import {Extend} from "../CircuitElement/Extend"
+import {FullAdder} from "../CircuitElement/FullAdder"
+// import {Gate} from "../CircuitElement/Gate"
+// import {Ground} from "../CircuitElement/Ground"
+import {HalfAdder} from "../CircuitElement/HalfAdder"
+import {Inc16} from "../CircuitElement/Inc16"
+// import {JKFlipFlop} from "../CircuitElement/JKFlipFlop"
+// import {JLSRAM} from "../CircuitElement/JLSRAM"
+// import {JLSRegister} from "../CircuitElement/JLSRegister"
+// import {LSB} from "../CircuitElement/LSB"
+// import {MSB} from "../CircuitElement/MSB"
+// import {Memory} from "../CircuitElement/Memory"
+import {Multiplexer} from "../CircuitElement/Multiplexer"
+import {Mux16} from "../CircuitElement/Mux16"
+import {Mux4Way16} from "../CircuitElement/Mux4Way16"
+import {Mux8Way16} from "../CircuitElement/Mux8Way16"
+// import {Nand2TetrisALU} from "../CircuitElement/Nand2TetrisALU"
+import {NandGate} from "../CircuitElement/NandGate"
+// import {NorGate} from "../CircuitElement/NorGate"
+import {Not16} from "../CircuitElement/Not16"
+import {NotGate} from "../CircuitElement/NotGate"
+import {Or16} from "../CircuitElement/Or16"
+import {Or8Way} from "../CircuitElement/Or8Way"
+import {OrGate} from "../CircuitElement/OrGate"
+// import {Power} from "../CircuitElement/Power"
+// import {PriorityEncoder} from "../CircuitElement/PriorityEncoder"
+// import {ROM} from "../CircuitElement/ROM"
+// import {Random} from "../CircuitElement/Random"
+// import {SRFlipFlop} from "../CircuitElement/SRFlipFlop"
+// import {SequentialElement} from "../CircuitElement/SequentialElement"
+// import {Splitter} from "../CircuitElement/Splitter"
+// import {Stop} from "../CircuitElement/Stop"
+// import {TFlipFlop} from "../CircuitElement/TFlipFlop"
+// import {TriState} from "../CircuitElement/TriState"
+// import {TwosCompliment} from "../CircuitElement/TwosCompliment"
+// import {XnorGate} from "../CircuitElement/XnorGate"
+import {XorGate} from "../CircuitElement/XorGate"
 
-// If you have multi-bit primitives (e.g., Mux16, And16, Add16, Inc16, ALU) as Willow-native,
-// import them here and map them in createElement below.
-// import { Mux } from "../CircuitElement/Mux";        // Example if exists
-// import { DMux } from "../CircuitElement/DMux";      // Example if exists
-// import { Mux16 } from "../CircuitElement/Mux16";    // Example if exists
-// import { Add16 } from "../CircuitElement/Add16";    // Example if exists
-// import { Inc16 } from "../CircuitElement/Inc16";    // Example if exists
-// import { ALU } from "../CircuitElement/ALU";        // Example if exists
-
-// ===== HDL parser (you already have this) =====
+// ===== HDL parser =====
 // Expected shape: parseHDL(text) → { name, inputs, outputs, builtin?, parts? }
 // parts = [{ type: string, args: Record<string,string> }, ...]
 import { parseHDL } from "./hdl/parseHDL"; // adjust path to your HDL parser
@@ -92,23 +133,41 @@ function normName(s: string): string {
  */
 const createElement: Record<string, ElementMaker> = {
   And: (i, o) => new AndGate(i, o),
-  Or:  (i, o) => new OrGate(i, o),
-  Not: (i, o) => new NotGate(i, o),
-
+  And16: (i, o) => new And16(i, o),
+  // Inc16: (i, o) => new Inc16(i, o),
   Nand: (i, o) => new NandGate(i, o),
-  Xor:  (i, o) => new XorGate(i, o),
-  Xnor: (i, o) => new XnorGate(i, o),
+  Not: (i, o) => new NotGate(i, o),
+  Not16: (i, o) => new Not16(i, o),
+  Or: (i, o) => new OrGate(i, o),
+  Or16: (i, o) => new Or16(i, o),
+  // Or8Way: (i, o) => new Or8Way(i, o),
+  Xor: (i, o) => new XorGate(i, o),
 
-  // Examples if/when supported by Willow:
-  // Mux: (i, o, extra) => new Mux(i, o, extra),
-  // DMux: (i, o, extra) => new DMux(i, o, extra),
-  // Mux16: (i, o, extra) => new Mux16(i, o, extra),
-  // And16: (i, o, extra) => new And16(i, o, extra),
-  // Or16:  (i, o, extra) => new Or16(i, o, extra),
-  // Not16: (i, o, extra) => new Not16(i, o, extra),
+  //Multi input circuit elements 
   // Add16: (i, o, extra) => new Add16(i, o, extra),
-  // Inc16: (i, o, extra) => new Inc16(i, o, extra),
-  // ALU:   (i, o, extra) => new ALU(i, o, extra),
+  // Bit: (i, o, extra) => new Bit(i, o, extra),
+  // DFF: (i, o, extra) => new DFlipFlop(i, o, extra),
+  // DMux: (i, o, extra) => new Demultiplexer(i, o, extra),
+  // DMux4Way: (i, o, extra) => new DMux4Way(i, o, extra),
+  // DMux8Way: (i, o, extra) => new DMux8Way(i, o, extra),
+  // // DRegister: () => new DRegister(), //not yet supported by Willow
+  // FullAdder: (i, o, extra) => new FullAdder(i, o, extra),
+  // HalfAdder: (i, o, extra) => new HalfAdder(i, o, extra),
+  // // Keyboard: () => new Keyboard(), //not yet supported  by Willow
+  // Mux: (i, o, extra) => new Multiplexer(i, o, extra),
+  // Mux16: (i, o, extra) => new Mux16(i, o, extra),
+  // Mux4Way16: (i, o, extra) => new Mux4Way16(i, o, extra),
+  // Mux8Way16: (i, o, extra) => new Mux8Way16(i, o, extra),
+
+  // PC: () => new PC(), not yet supported by Willow
+  // RAM16K: () => new RAM16K(), not yet supported by Willow
+  // RAM4K: () => new RAM4K(), not yet supported by Willow
+  // RAM512: () => new RAM512(), not yet supported by Willow
+  // RAM64: () => new RAM64(), not yet supported by Willow
+  // RAM8: () => new RAM8(), not yet supported by Willow
+  // ROM32K: () => new ROM32K(), not yet supported by Willow
+  // Register: () => new Register(), not yet supported by Willow
+  // Screen: () => new Screen(),
 };
 
 // Build a normalized lookup map once.
@@ -127,9 +186,25 @@ const createElementByNorm = new Map<string, ElementMaker>(
  * ADD HERE when you need canonical pin orders for a chip (e.g., Mux, DMux, ALU).
  */
 const PIN_ORDERS: Record<string, { inPins: string[]; outPins: string[] }> = {
-  Mux:  { inPins: ["a", "b", "sel"], outPins: ["out"] },
-  // DMux: { inPins: ["in", "sel"],     outPins: ["a", "b"] },
-  // ALU:  { inPins: ["x", "y", "zx", "nx", "zy", "ny", "f", "no"], outPins: ["out", "zr", "ng"]
+  // Arithmetic
+  HalfAdder:  { inPins: ["a", "b"],           outPins: ["sum", "carry"] },
+  FullAdder:  { inPins: ["a", "b", "c"],      outPins: ["sum", "carry"] },
+  Add16:      { inPins: ["a", "b"],           outPins: ["out"] },
+  Inc16:      { inPins: ["in"],               outPins: ["out"] },
+
+  // Storage / sequential
+  Bit:        { inPins: ["in", "load"],       outPins: ["out"] },
+  DFF:        { inPins: ["clock", "d", "reset", "preset", "enable"], outPins: ["q", "qInv"] },
+
+  // Multiplexers / demultiplexers
+  Mux:        { inPins: ["a", "b", "sel"],    outPins: ["out"] },
+  Mux16:      { inPins: ["a", "b", "sel"],    outPins: ["out"] },
+  Mux4Way16:  { inPins: ["a", "b", "c", "d", "sel"],                         outPins: ["out"] },
+  Mux8Way16:  { inPins: ["a", "b", "c", "d", "e", "f", "g", "h", "sel"],     outPins: ["out"] },
+
+  DMux:       { inPins: ["in", "sel"],        outPins: ["a", "b"] },
+  DMux4Way:   { inPins: ["in", "sel"],        outPins: ["a", "b", "c", "d"] },
+  DMux8Way:   { inPins: ["in", "sel"],        outPins: ["a", "b", "c", "d", "e", "f", "g", "h"] },
 
 };
 
@@ -184,6 +259,7 @@ function ensureBus(
  *
  * This is a placeholder; wire it to your existing implementation if you already have one.
  */
+//TODO: 
 function resolveSignal(
   table: Record<string, CircuitBus>,
   ref: string,
