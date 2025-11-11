@@ -61,3 +61,48 @@ test("Infinite loop", async () => {
 
   expect(() => circuit.run({ inp1: "1" })).toThrow("step limit exceeded");
 });
+
+test("Combinatorial AND gate returns correct output (object input)", async () => {
+  const project = await loadProject(CircuitVerseLoader, "tests/cv/Simple.cv");
+  const circuit = project.getCircuitByName("Combinatorial");
+
+  const res = circuit.run({ inp1: "1", inp2: "1" });
+
+  // object-form output should contain the named output
+  const outputs = res.outputs as any;
+  expect(outputs).toHaveProperty("out1");
+  expect(outputs.out1).not.toBeNull();
+  expect((outputs.out1 as BitString).equals(BitString.high())).toBe(true);
+  expect(typeof res.propagationDelay).toBe("number");
+  expect(typeof res.steps).toBe("number");
+});
+
+test("Combinatorial AND gate returns correct output (array input)", async () => {
+  const project = await loadProject(CircuitVerseLoader, "tests/cv/Simple.cv");
+  const circuit = project.getCircuitByName("Combinatorial");
+
+  // When providing an array, outputs are returned as an array
+  const res = circuit.run(["1", "1"] as any);
+
+  expect(Array.isArray(res.outputs)).toBe(true);
+  // single output should be high
+  expect((res.outputs as (BitString | null)[])[0]).not.toBeNull();
+  expect(((res.outputs as (BitString | null)[])[0] as BitString).equals(BitString.high())).toBe(true);
+});
+
+test("Clocked circuit halts with provided halt condition", async () => {
+  const project = await loadProject(CircuitVerseLoader, "tests/cv/Clock.cv");
+  const circuit = project.getCircuitByName("Main");
+
+  // Circuit should contain at least one clock
+  expect(circuit.getClocks().length).toBeGreaterThan(0);
+
+  // Halt after a small number of cycles to ensure run returns
+  const res = circuit.run({}, (clockHigh, clockCycles) => {
+    return clockCycles >= 1;
+  });
+
+  expect(res).toBeDefined();
+  expect(typeof res.propagationDelay).toBe("number");
+  expect(typeof res.steps).toBe("number");
+});

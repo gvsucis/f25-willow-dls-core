@@ -56,7 +56,7 @@ export class ROM extends CircuitElement {
 
     if (BitString.high().equals(enable.getValue())) {
       const idx = address.getValue()?.toUnsigned();
-      if (idx) {
+      if (idx !== undefined && idx !== null && idx < this.#data.length) {
         const value = this.#data[idx];
         output.setValue(value);
       }

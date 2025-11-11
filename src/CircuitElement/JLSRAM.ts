@@ -38,7 +38,7 @@ export class JLSRAM extends Memory {
       BitString.low().equals(chipSelect.getValue()) &&
       BitString.low().equals(enable.getValue())
     ) {
-      if (idx) {
+      if (idx !== undefined && idx !== null) {
         if (idx > this.data.length) {
           output.setValue(null);
         } else {
@@ -61,7 +61,7 @@ export class JLSRAM extends Memory {
       BitString.low().equals(chipSelect.getValue()) &&
       BitString.low().equals(writeEnable.getValue())
     ) {
-      if (idx && data.getValue() && idx < this.data.length) {
+      if (idx !== undefined && idx !== null && data.getValue() && idx < this.data.length) {
         this.log(LogLevel.TRACE, `Writing value: ${data.getValue()}`);
         this.data[idx] = data.getValue() ?? BitString.low(this.wordSize);
       } else {
