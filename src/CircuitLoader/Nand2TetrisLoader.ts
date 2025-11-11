@@ -19,7 +19,8 @@ import { Input } from "../CircuitElement/Input";
 import { Output } from "../CircuitElement/Output";
 import { CircuitBus } from "../CircuitBus";
 import { CircuitLoggable, LogLevel } from "../CircuitLogger";
-import { FileUtil, Stream } from "../FileUtil"; // adjust if your FileUtil exports differ
+import { FileUtil } from "../Util/File";
+import Stream from "stream";
 
 // ===== Willow primitive elements (ADD HERE as Willow gains new elements) =====
 import { AndGate } from "../CircuitElement/AndGate";
@@ -125,10 +126,10 @@ const createElementByNorm = new Map<string, ElementMaker>(
  *
  * ADD HERE when you need canonical pin orders for a chip (e.g., Mux, DMux, ALU).
  */
-const PIN_ORDERS: Record<string, { ins: string[]; outs: string[] }> = {
-  Mux:  { ins: ["a", "b", "sel"], outs: ["out"] },
-  // DMux: { ins: ["in", "sel"],     outs: ["a", "b"] },
-  // ALU:  { ins: ["x", "y", "zx", "nx", "zy", "ny", "f", "no"], outs: ["out", "zr", "ng"]
+const PIN_ORDERS: Record<string, { inPins: string[]; outPins: string[] }> = {
+  Mux:  { inPins: ["a", "b", "sel"], outPins: ["out"] },
+  // DMux: { inPins: ["in", "sel"],     outPins: ["a", "b"] },
+  // ALU:  { inPins: ["x", "y", "zx", "nx", "zy", "ny", "f", "no"], outPins: ["out", "zr", "ng"]
 
 };
 
@@ -269,18 +270,18 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
     const elements: CircuitElement[] = [];
 
     // 1) Create IO shells: Inputs drive an internal bus; Outputs read from an internal bus.
-    for (const p of hdl.inputs) {
+    hdl.inputs.forEach((p, index) => {
       const internal = ensureBus(busses, p.name, p.width);
       const out = new CircuitBus(p.width);
-      const inputEl = new Input(0, p.name, [out]);
       out.connect(internal);
+      const inputEl = new Input(index, p.name, [out]);
       elements.push(inputEl);
-    }
-    for (const p of hdl.outputs) {
+    });
+    hdl.outputs.forEach((p, index) => {
       const internal = ensureBus(busses, p.name, p.width);
-      const outputEl = new Output(0, p.name, internal);
+      const outputEl = new Output(index, p.name, internal);
       elements.push(outputEl);
-    }
+    });
 
     // Quick helpers to address top-level ports by name (used when building whole-chip primitives)
     const insByName = (pin: string): CircuitBus => {
@@ -306,8 +307,12 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
       } else {
         const child = await this.ensureChildLoaded(project, target);
         if (child) {
-          const childInNames = child.getInputs?.().map((p: any) => p.name) ?? [];
-          const childOutNames = child.getOutputs?.().map((p: any) => p.name) ?? [];
+          const childInNames = Object.values(child.getInputs?.() ?? {})
+            .sort((a: any, b: any) => a.getIndex() - b.getIndex())
+            .map((p: any) => p.getLabel());
+          const childOutNames = Object.values(child.getOutputs?.() ?? {})
+            .sort((a: any, b: any) => a.getIndex() - b.getIndex())
+            .map((p: any) => p.getLabel());
           const inByOrder = childInNames.map((pin) => insByName(pin));
           const outByOrder = childOutNames.map((pin) => outsByName(pin));
           elements.push(new SubCircuit(child, inByOrder, outByOrder));
@@ -348,43 +353,44 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
   ): Promise<void> {
     const { type, args } = part;
 
-    // Decide pin order before positional construction
-    const { inPins, outPins } = choosePinOrder(type, args);
-
-    // Resolve input buses
-    const ins: CircuitBus[] = inPins.map((pin) => {
-      const ref = args[pin];
-      if (ref == null) throw new Error(`${type} missing pin '${pin}'.`);
-      // width hint: if a top-level IN has the same name, prefer that width
-      const declared = hdl.inputs.find((p) => p.name === pin);
-      const widthHint = declared?.width ?? 1;
-      return resolveSignal(busses, ref, widthHint);
-    });
-
-    // Resolve output buses
-    const outs: CircuitBus[] = outPins.map((pin) => {
-      const ref = args[pin];
-      if (ref == null) throw new Error(`${type} missing pin '${pin}'.`);
-      // width hint: if a top-level OUT has the same name, prefer that width
-      const declared = hdl.outputs.find((p) => p.name === pin);
-      const widthHint = declared?.width ?? 1;
-      return resolveSignal(busses, ref, widthHint);
-    });
-
     // 1) Primitive?
     const maker = this.getPrimitiveMaker(type);
     if (maker) {
+      // For primitives, use pin order heuristic
+      const { inPins, outPins } = choosePinOrder(type, args);
+
+      // Resolve input buses
+      const ins: CircuitBus[] = inPins.map((pin) => {
+        const ref = args[pin];
+        if (ref == null) throw new Error(`${type} missing pin '${pin}'.`);
+        const declared = hdl.inputs.find((p) => p.name === pin);
+        const widthHint = declared?.width ?? 1;
+        return resolveSignal(busses, ref, widthHint);
+      });
+
+      // Resolve output buses
+      const outs: CircuitBus[] = outPins.map((pin) => {
+        const ref = args[pin];
+        if (ref == null) throw new Error(`${type} missing pin '${pin}'.`);
+        const declared = hdl.outputs.find((p) => p.name === pin);
+        const widthHint = declared?.width ?? 1;
+        return resolveSignal(busses, ref, widthHint);
+      });
+
       elements.push(maker(ins, outs, args));
       return;
     }
 
     // 2) Subcircuit? (existing or lazy-loadable)
-    const child =
-      project.getCircuitByName(type) || (await this.ensureChildLoaded(project, type));
+    const child = await this.ensureChildLoaded(project, type);
     if (child) {
-      // Bind by child's declared pin order (names)
-      const childInputNames = child.getInputs?.().map((p: any) => p.name) ?? [];
-      const childOutputNames = child.getOutputs?.().map((p: any) => p.name) ?? [];
+      // Bind by child's declared pin order (names), sorted by index to preserve HDL order
+      const childInputNames = Object.values(child.getInputs?.() ?? {})
+        .sort((a: any, b: any) => a.getIndex() - b.getIndex())
+        .map((p: any) => p.getLabel());
+      const childOutputNames = Object.values(child.getOutputs?.() ?? {})
+        .sort((a: any, b: any) => a.getIndex() - b.getIndex())
+        .map((p: any) => p.getLabel());
 
       const inByOrder = childInputNames.map((pin) => {
         const ref = args[pin];
@@ -421,8 +427,12 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
     chipName: string,
   ): Promise<Circuit | null> {
     // Already present?
-    const existing = project.getCircuitByName(chipName);
-    if (existing) return existing;
+    try {
+      const existing = project.getCircuitByName(chipName);
+      if (existing) return existing;
+    } catch {
+      // Not found, continue to load it
+    }
 
     // No resolver? We can't lazy-load.
     if (!this.resolveChildHDL) return null;
@@ -437,12 +447,12 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
     if (!stream) return null;
 
     // Load child into the same project.
-    this.loadingStack.add(chipName);
+    // Note: loadIntoProject manages the loading stack internally
+    await this.loadIntoProject(project, stream);
     try {
-      await this.loadIntoProject(project, stream);
       return project.getCircuitByName(chipName) ?? null;
-    } finally {
-      this.loadingStack.delete(chipName);
+    } catch {
+      return null;
     }
   }
 

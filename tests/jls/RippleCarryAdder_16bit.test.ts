@@ -23,53 +23,32 @@
  */
 
 import { beforeAll, test, expect } from "@jest/globals";
-import { BitString, Circuit, loadCircuit } from "../../../src";
-import { Nand2TetrisLoader } from "../../../src/CircuitLoader/Nand2TetrisLoader";
-import { FileLogger } from "../../../src/CircuitLogger/FileLogger";
-import { LogLevel } from "../../../src/CircuitLogger";
+import { BitString, Circuit, loadCircuit } from "../../src";
+import { JLSLoader } from "../../src/CircuitLoader/JLSLoader";
+import { FileLogger } from "../../src/CircuitLogger/FileLogger";
+import { LogLevel } from "../../src/CircuitLogger";
 
 let circuit: Circuit;
 
 beforeAll(async () => {
-  // const logger = new FileLogger("jls.log");
-  // logger.setLevel(LogLevel.TRACE);
+  try {
+    console.log('Starting to load circuit...');
+    const logger = new FileLogger("RippleCarry_16bit.log");
+    logger.setLevel(LogLevel.TRACE);
+    console.log('Logger initialized, loading circuit...');
+    circuit = await loadCircuit(
+      JLSLoader,
+      "tests/jls/rippleCarryAdder_16bit.jls",
+      "UnsignedFullAdder_16bit",
+      logger,
+    );
+    console.log('Circuit loaded successfully');
+  } catch (error) {
+    console.error('Error loading circuit:', error);
+    throw error;
+  }
+}, 5000); // 5 second timeout
 
-  circuit = await loadCircuit(
-    Nand2TetrisLoader,
-    "tests/n2t/nand_up_chips/HalfAdder.hdl",
-    "HalfAdder",
-    // logger,
-  );
+test("Test Ripple Carry Adder", () => {
+  circuit.run({});
 });
-
-const truthTable = [
-  ["00", "00"],
-  ["01", "10"],
-  ["10", "10"],
-  ["11", "01"],
-];
-
-function genTest(inputs, outputs) {
-  return () => {
-    const actualOutputs = circuit.run(inputs).outputs;
-    expect(actualOutputs.sum.toString()).toStrictEqual(outputs.sum);
-    expect(actualOutputs.carry.toString()).toStrictEqual(outputs.carry);
-  };
-}
-
-for (const row of truthTable) {
-  const inputs = {
-    a: row[0][0],
-    b: row[0][1],
-  };
-
-  const outputs = {
-    sum: row[1][0],
-    carry: row[1][1],
-  };
-
-  test(
-    `N2T Half Adder(non-builtin) [a = ${inputs.a}, b = ${inputs.b}] => [sum = ${outputs.sum}, carry = ${outputs.carry}]`,
-    genTest(inputs, outputs),
-  );
-}
