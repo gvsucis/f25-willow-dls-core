@@ -3,11 +3,14 @@
 // AI Acknowledgement -  AI was used in the development of this file for REGEX, commenting/documentation, helper functions, and sytax fixes. 
 
 // Core ideas:
-//  - Try a Willow primitive first, else treat as a subcircuit.
-//  - Subcircuits are just other HDL chips by name; we can lazily load them via an optional resolver.
+//  -   See if 1) subcircuit loaded, 2) subcircuit in wdir, 3) willow primitive
+//  -   if subcircuit not in resolved subcircuit list: search for HDL in wdir and recursivly resolve
 //  - A small "createElement" map is the single source of truth for primitives (Willow-native elements).
 //  - Known chips may need stable pin orders (e.g. ALU); otherwise we fall back to a simple heuristic.
 
+
+import fs from "fs";
+import path from "path";
 
 
 import { CircuitLoader } from "../CircuitLoader";
@@ -84,6 +87,7 @@ import {XorGate} from "../CircuitElement/XorGate"
 // Expected shape: parseHDL(text) → { name, inputs, outputs, builtin?, parts? }
 // parts = [{ type: string, args: Record<string,string> }, ...]
 import { parseHDL } from "./hdl/parseHDL"; // adjust path to your HDL parser
+import { warn } from "console";
 
 // -------------------------------------------------------------------------------------
 // Types
@@ -143,21 +147,78 @@ const createElement: Record<string, ElementMaker> = {
   // Or8Way: (i, o) => new Or8Way(i, o),
   Xor: (i, o) => new XorGate(i, o),
 
-  //Multi input circuit elements 
-  // Add16: (i, o, extra) => new Add16(i, o, extra),
-  // Bit: (i, o, extra) => new Bit(i, o, extra),
-  // DFF: (i, o, extra) => new DFlipFlop(i, o, extra),
-  // DMux: (i, o, extra) => new Demultiplexer(i, o, extra),
-  // DMux4Way: (i, o, extra) => new DMux4Way(i, o, extra),
-  // DMux8Way: (i, o, extra) => new DMux8Way(i, o, extra),
-  // // DRegister: () => new DRegister(), //not yet supported by Willow
-  // FullAdder: (i, o, extra) => new FullAdder(i, o, extra),
-  // HalfAdder: (i, o, extra) => new HalfAdder(i, o, extra),
-  // // Keyboard: () => new Keyboard(), //not yet supported  by Willow
-  // Mux: (i, o, extra) => new Multiplexer(i, o, extra),
-  // Mux16: (i, o, extra) => new Mux16(i, o, extra),
-  // Mux4Way16: (i, o, extra) => new Mux4Way16(i, o, extra),
-  // Mux8Way16: (i, o, extra) => new Mux8Way16(i, o, extra),
+  // Multi input circuit elements 
+  Add16: (i, o) => new Add16(i[0], i[1], o[0]),
+  Bit: (i, o) => new Bit(i[0], i[1], o[0]),
+  DFF: (i, o) => new DFlipFlop(     
+        i[0], // clock
+        i[1], // d
+        i[2], // reset
+        i[3], // preset
+        i[4], // enable
+        o[0], // q
+        o[1], // qInv
+    ),
+  DMux: (i, o) => new Demultiplexer(
+        [i[0]], // in
+        o,      // [a, b]
+        i[1],   // sel
+    ),
+  DMux4Way: (i, o) => new DMux4Way(
+        i[0], // in
+        i[1], // sel
+        o[0], // a
+        o[1], // b
+        o[2], // c
+        o[3], // d
+  ),
+  DMux8Way: (i, o) => new DMux8Way(
+        i[0], // in
+        i[1], // sel
+        o[0], // a
+        o[1], // b
+        o[2], // c
+        o[3], // d
+        o[4], // e
+        o[5], // f
+        o[6], // g
+        o[7], // h
+  ),
+  // DRegister: () => new DRegister(), //not yet supported by Willow
+  FullAdder: (i, o) => new FullAdder(i[0], i[1], i[2], o[0], o[1]),
+  HalfAdder: (i, o) => new HalfAdder(i[0], i[1], o[0], o[1]),
+  // Keyboard: () => new Keyboard(), //not yet supported  by Willow
+  Mux: (i, o) => new Multiplexer(
+            [i[0], i[1]],   // data inputs: a, b
+            o,              // ["out"]
+            i[2],           // sel
+  ),
+  Mux16: (i, o) => new Mux16(
+        i[0], // a
+        i[1], // b
+        i[2], // sel
+        o[0], // out
+  ),
+  Mux4Way16: (i, o) => new Mux4Way16(
+        i[0], // a
+        i[1], // b
+        i[2], // c
+        i[3], // d
+        i[4], // sel
+        o[0], // out
+  ),
+  Mux8Way16: (i, o) => new Mux8Way16(
+        i[0], // a
+        i[1], // b
+        i[2], // c
+        i[3], // d
+        i[4], // e
+        i[5], // f
+        i[6], // g
+        i[7], // h
+        i[8], // sel
+        o[0], // out
+  ),
 
   // PC: () => new PC(), not yet supported by Willow
   // RAM16K: () => new RAM16K(), not yet supported by Willow
@@ -190,7 +251,6 @@ const PIN_ORDERS: Record<string, { inPins: string[]; outPins: string[] }> = {
   HalfAdder:  { inPins: ["a", "b"],           outPins: ["sum", "carry"] },
   FullAdder:  { inPins: ["a", "b", "c"],      outPins: ["sum", "carry"] },
   Add16:      { inPins: ["a", "b"],           outPins: ["out"] },
-  Inc16:      { inPins: ["in"],               outPins: ["out"] },
 
   // Storage / sequential
   Bit:        { inPins: ["in", "load"],       outPins: ["out"] },
@@ -292,13 +352,15 @@ export type ChildResolver = (chipName: string) => Promise<Stream | null>;
  * - Builds a new Circuit for each .hdl file, and stores it in the provided CircuitProject.
  */
 export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable {
-  private resolveChildHDL?: ChildResolver;
-  private loadingStack = new Set<string>(); // cycle guard
+    private readonly workingDir: string;
+    private loadingStack = new Set<string>(); // cycle guard
 
-  constructor(resolver?: ChildResolver) {
-    super();
-    this.resolveChildHDL = resolver;
-  }
+    constructor(workingDir:string = process.cwd()){
+        super();
+        this.workingDir = workingDir;
+    }
+
+  
 
   /**
    * Public entry: loads a single HDL stream into a fresh CircuitProject.
@@ -334,209 +396,250 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
     }
   }
 
-  /**
-   * Build all elements for a single HDL chip:
-   *  - Creates top-level Input/Output shells
-   *  - If BUILTIN: treat like a single "part" named by builtin/hdl.name (primitive→subcircuit)
-   *  - Else iterate PARTS with the unified resolution rule
-   */
-  private async buildCircuitElements(project: CircuitProject, hdl: ParsedHDL): Promise<{ elements: CircuitElement[] }> {
-    // Local netlist bus table
-    const busses: Record<string, CircuitBus> = {};
-    const elements: CircuitElement[] = [];
+/**
+ * Build all elements for a single HDL chip:
+ *  - Creates top-level Input/Output shells.
+ *  - If BUILTIN is declared, attempts to implement the entire chip as a single
+ *    instance (subcircuit or primitive) using the same resolution rules as PARTS.
+ *    If that succeeds, PARTS are ignored (with a warning).
+ *  - If BUILTIN is absent or cannot be resolved, PARTS are instantiated one by one
+ *    using the same subcircuit-first, primitive-second logic.
+ */
+    private async buildCircuitElements(
+        project: CircuitProject,
+        hdl: ParsedHDL,
+    ): Promise<{ elements: CircuitElement[] }> {
+        const busses: Record<string, CircuitBus> = {};
+        const elements: CircuitElement[] = [];
 
-    // 1) Create IO shells: Inputs drive an internal bus; Outputs read from an internal bus.
-    hdl.inputs.forEach((p, index) => {
-      const internal = ensureBus(busses, p.name, p.width);
-      const out = new CircuitBus(p.width);
-      out.connect(internal);
-      const inputEl = new Input(index, p.name, [out]);
-      elements.push(inputEl);
-    });
-    hdl.outputs.forEach((p, index) => {
-      const internal = ensureBus(busses, p.name, p.width);
-      const outputEl = new Output(index, p.name, internal);
-      elements.push(outputEl);
-    });
 
-    // Quick helpers to address top-level ports by name (used when building whole-chip primitives)
-    const insByName = (pin: string): CircuitBus => {
-      const port = hdl.inputs.find((p) => p.name === pin);
-      if (!port) throw new Error(`Unknown input pin '${pin}' on chip '${hdl.name}'.`);
-      return ensureBus(busses, port.name, port.width);
-    };
-    const outsByName = (pin: string): CircuitBus => {
-      const port = hdl.outputs.find((p) => p.name === pin);
-      if (!port) throw new Error(`Unknown output pin '${pin}' on chip '${hdl.name}'.`);
-      return ensureBus(busses, port.name, port.width);
-    };
-
-    // 2) If the chip is declared BUILTIN, we *still* apply the same resolution rule:
-    //    try primitive by the builtin name (or hdl.name) → else treat as subcircuit by that name.
-    if (hdl.builtin) {
-      const target = hdl.builtin || hdl.name;
-      const maker = this.getPrimitiveMaker(target) || this.getPrimitiveMaker(hdl.name);
-      if (maker) {
-        const ins = hdl.inputs.map((p) => insByName(p.name));
-        const outs = hdl.outputs.map((p) => outsByName(p.name));
-        elements.push(maker(ins, outs, {}));
-      } else {
-        const child = await this.ensureChildLoaded(project, target);
-        if (child) {
-          const childInNames = Object.values(child.getInputs?.() ?? {})
-            .sort((a: any, b: any) => a.getIndex() - b.getIndex())
-            .map((p: any) => p.getLabel());
-          const childOutNames = Object.values(child.getOutputs?.() ?? {})
-            .sort((a: any, b: any) => a.getIndex() - b.getIndex())
-            .map((p: any) => p.getLabel());
-          const inByOrder = childInNames.map((pin) => insByName(pin));
-          const outByOrder = childOutNames.map((pin) => outsByName(pin));
-          elements.push(new SubCircuit(child, inByOrder, outByOrder));
-        } else {
-          this.log(
-            LogLevel.WARN,
-            `BUILTIN '${target}' for '${hdl.name}' not mapped and no subcircuit found; creating IO-only shell.`,
-          );
+        const hasBuiltin = !!hdl.builtin && hdl.builtin.trim().length > 0;
+        const hasParts = !!hdl.parts && hdl.parts.length > 0;
+        
+        if(hasBuiltin && hasParts){
+            throw new Error(
+                `HDL chip '${hdl.name}' declares both BUILTIN and PARTS;` + 
+                `BUILTIN and PARTS are mutually exclusive. BUILTINS should map to primitives`
+            );
         }
-      }
-      return { elements };
+
+        // 1) Create IO shells: Inputs drive an internal bus; Outputs read from an internal bus.
+        hdl.inputs.forEach((p, index) => {
+            const internal = ensureBus(busses, p.name, p.width);
+            const inputEl = new Input(index, p.name, [internal]);
+            elements.push(inputEl);
+        });
+
+        hdl.outputs.forEach((p, index) => {
+            const internal = ensureBus(busses, p.name, p.width);
+            const outputEl = new Output(index, p.name, internal);
+            elements.push(outputEl);
+        });
+
+        //2) BUILTIN must map directly to Willow Primitive
+        if (hasBuiltin){
+            const builtinName = hdl.builtin!.trim();
+            const maker = this.getPrimitiveMaker(builtinName);
+
+            if (!maker){
+                throw new Error(
+                    `HDL chip '${hdl.name}' declares BUITLIN '${builtinName}', ` + 
+                    `but there is no corresponding Willow primitive mapping.`,
+                );
+            }
+
+            const ins: CircuitBus[] = hdl.inputs.map((p)=> ensureBus (busses, p.name, p.width));
+            const outs: CircuitBus[] = hdl.outputs.map((p) => ensureBus(busses, p.name, p.width));
+            elements.push(maker(ins, outs))
+            return {elements};
+        }
+
+        //3) PARTS-based HDL
+        if (hasParts){
+            for (const part of hdl.parts!) {
+                await this.instantiatePart(project, hdl, part, busses, elements);
+            }
+            return {elements};
+        }
+        
+        //4 Neither BUILTIN nor PARTS;
+        this.log(
+            LogLevel.WARN,
+            `HDL chip '${hdl.name}' has no BUILTIN and no PARTS; creating IO-only shell.`,
+        );
+        return { elements };
     }
 
-    // 3) PARTS-based HDL: iterate each part and resolve as primitive→subcircuit.
-    if (hdl.parts && hdl.parts.length) {
-      for (const part of hdl.parts) {
-        await this.instantiatePart(project, hdl, part, busses, elements);
-      }
+
+    /**
+     * Instantiate one PART line: type(args...).
+     * Resolution rule :
+     *   1) Try to resolve as an HDL subcircuit (loaded or from <type>.hdl in wdir).
+     *      - If both HDL and primitive exist, HDL wins (with a warning).
+     *   2) If no HDL subcircuit, try to resolve as a Willow primitive.
+     *   3) If neither exist, log a warning and do nothing.
+     */
+    private async instantiatePart(
+        project: CircuitProject,
+        hdl: ParsedHDL,
+        part: HDLPart,
+        busses: Record<string, CircuitBus>,
+        elements: CircuitElement[],
+    ): Promise<void> {
+        const { type, args } = part;
+
+        //1) subcircuit? 
+        const child = await this.ensureChildLoaded(project, type);
+        if (child){
+            //bind by childs declared pin order 
+            const childInputNames = Object.values(child.getInputs?.() ?? {})
+                .sort((a:any, b:any) => a.getIndex() - b.getIndex())
+                .map((p:any) =>p.getLabel());
+            const childOutputNames = Object.values(child.getOutputs?.() ?? {})
+                .sort((a: any, b: any) => a.getIndex() - b.getIndex())
+                .map((p: any) => p.getLabel());
+
+            const inByOrder = childInputNames.map((pin) =>{
+                const ref = args[pin];
+                if (ref == null){
+                    throw new Error(
+                        `Subcircuit '${type}' used in chip '${hdl.name}' ` +
+                        `is missing a connection for input pin '${pin}'.`,
+                  );
+                }
+                //width hint is conservative, ensureBus will reconcile
+                return resolveSignal(busses, ref, 1);
+            });
+
+            const outByOrder = childOutputNames.map((pin) => {
+                const ref = args[pin];
+                if (ref == null) {
+                    throw new Error(
+                        `Subcircuit '${type}' used in chip '${hdl.name}' ` +
+                        `is missing a connection for output pin '${pin}'.`,
+                    );
+                }
+                return resolveSignal(busses, ref, 1);
+             });
+
+            elements.push(new SubCircuit(child, inByOrder, outByOrder));
+            return;
+        }
+
+        //2) primitive?
+        const maker = this.getPrimitiveMaker(type);
+        if (maker){
+            const {inPins, outPins} = choosePinOrder(type, args);
+
+            const ins:CircuitBus[] = inPins.map((pin)=>{
+                const ref = args[pin];
+                if (ref == null){
+                    throw new Error(
+                        `Primitive '${type}' in chip '${hdl.name}' is missing ` +
+                        `input pin '${pin}'.`,
+                  );
+                }
+                return resolveSignal(busses, ref, 1);
+            });
+
+            const outs: CircuitBus[] = outPins.map((pin) => {
+                const ref = args[pin];
+                if (ref == null) {
+                    throw new Error(
+                        `Primitive '${type}' in chip '${hdl.name}' is missing ` +
+                        `output pin '${pin}'.`,
+                    );
+                }
+                return resolveSignal(busses, ref, 1);
+            });
+        // Any remaining pins (e.g. select lines) can be passed as "extra"
+            const extra: Record<string, string> = {};
+            for (const [pin, ref] of Object.entries(args)) {
+                if (!inPins.includes(pin) && !outPins.includes(pin)) {
+                    extra[pin] = ref;
+                }0
+            }
+
+            elements.push(maker(ins, outs, extra));
+            return;
+        }
+        // 3) Nothing matched: this is an error in the N2T project
+        throw new Error(
+            `Unknown chip type '${type}' in PARTS of '${hdl.name}'. ` +
+            `Expected a previously loaded subcircuit, a resolvable '.hdl' ` +
+            `file in the working directory, or a Willow primitive.`,
+        );
     }
 
-    return { elements };
-  }
-
-  /**
-   * Instantiate one PART line: type(args...). Resolution rule is always:
-   *   1) If Willow primitive exists → create it.
-   *   2) Else treat as subcircuit:
-   *       - if already loaded in project, use it
-   *       - else, try to lazy-load via resolver
-   *   3) Else warn.
-   */
-  private async instantiatePart(
-    project: CircuitProject,
-    hdl: ParsedHDL,
-    part: HDLPart,
-    busses: Record<string, CircuitBus>,
-    elements: CircuitElement[],
-  ): Promise<void> {
-    const { type, args } = part;
-
-    // 1) Primitive?
-    const maker = this.getPrimitiveMaker(type);
-    if (maker) {
-      // For primitives, use pin order heuristic
-      const { inPins, outPins } = choosePinOrder(type, args);
-
-      // Resolve input buses
-      const ins: CircuitBus[] = inPins.map((pin) => {
-        const ref = args[pin];
-        if (ref == null) throw new Error(`${type} missing pin '${pin}'.`);
-        const declared = hdl.inputs.find((p) => p.name === pin);
-        const widthHint = declared?.width ?? 1;
-        return resolveSignal(busses, ref, widthHint);
-      });
-
-      // Resolve output buses
-      const outs: CircuitBus[] = outPins.map((pin) => {
-        const ref = args[pin];
-        if (ref == null) throw new Error(`${type} missing pin '${pin}'.`);
-        const declared = hdl.outputs.find((p) => p.name === pin);
-        const widthHint = declared?.width ?? 1;
-        return resolveSignal(busses, ref, widthHint);
-      });
-
-      elements.push(maker(ins, outs, args));
-      return;
-    }
-
-    // 2) Subcircuit? (existing or lazy-loadable)
-    const child = await this.ensureChildLoaded(project, type);
-    if (child) {
-      // Bind by child's declared pin order (names), sorted by index to preserve HDL order
-      const childInputNames = Object.values(child.getInputs?.() ?? {})
-        .sort((a: any, b: any) => a.getIndex() - b.getIndex())
-        .map((p: any) => p.getLabel());
-      const childOutputNames = Object.values(child.getOutputs?.() ?? {})
-        .sort((a: any, b: any) => a.getIndex() - b.getIndex())
-        .map((p: any) => p.getLabel());
-
-      const inByOrder = childInputNames.map((pin) => {
-        const ref = args[pin];
-        if (ref == null) throw new Error(`SubCircuit '${type}' missing input '${pin}'.`);
-        return resolveSignal(busses, ref, 1);
-      });
-      const outByOrder = childOutputNames.map((pin) => {
-        const ref = args[pin];
-        if (ref == null) throw new Error(`SubCircuit '${type}' missing output '${pin}'.`);
-        return resolveSignal(busses, ref, 1);
-      });
-
-      elements.push(new SubCircuit(child, inByOrder, outByOrder));
-      return;
-    }
-
-    // 3) Nothing matched
-    this.log(
-      LogLevel.WARN,
-      `Unknown chip '${type}' in PARTS of '${hdl.name}'. Add a Willow primitive mapping or supply a subcircuit named '${type}'.`,
-    );
-  }
 
   // -----------------------------------------------------------------------------------
   // Helpers: primitive maker lookup, lazy child load, logging passthrough
   // -----------------------------------------------------------------------------------
 
-  private getPrimitiveMaker(name: string): ElementMaker | undefined {
-    return createElementByNorm.get(normName(name));
-  }
-
-  private async ensureChildLoaded(
-    project: CircuitProject,
-    chipName: string,
-  ): Promise<Circuit | null> {
-    // Already present?
-    try {
-      const existing = project.getCircuitByName(chipName);
-      if (existing) return existing;
-    } catch {
-      // Not found, continue to load it
+    private getPrimitiveMaker(name: string): ElementMaker | undefined {
+        return createElementByNorm.get(normName(name));
     }
 
-    // No resolver? We can't lazy-load.
-    if (!this.resolveChildHDL) return null;
+    private async ensureChildLoaded(
+        project: CircuitProject,
+        chipName: string,
+    ): Promise<Circuit | null> {
 
-    // Cycle guard: if child is on the current stack, we abort.
-    if (this.loadingStack.has(chipName)) {
-      this.log(LogLevel.ERROR, `Cyclic subcircuit dependency involving '${chipName}'.`);
-      return null;
+        //Already in project?
+        try{
+            const existing = project.getCircuitByName(chipName);
+            if (existing) return existing;
+        } catch {} //throw if missing, but thats ok, do nothign
+
+        //2) No resolvver = Cannot load HDL
+        if (!this.loadingStack.has(chipName)){
+            this.log(
+                LogLevel.ERROR,
+                `Cyclic subcircuit dependency involving '${chipName}'.`,
+            );
+            return null;
+        }
+
+        //3) as resolver for child HDL stream
+        const stream = await this.openChildHDL(chipName);
+        if (!stream) {
+            return null;
+        }
+
+        this.loadingStack.add(chipName);
+        try{
+            await this.loadIntoProject(project, stream);
+        } finally{
+            this.loadingStack.delete(chipName);
+        }
+
+        //4) lookup now that its loaded
+        try{
+            return project.getCircuitByName(chipName)?? null;
+        } catch{
+            return null;
+        }
     }
 
-    const stream = await this.resolveChildHDL(chipName);
-    if (!stream) return null;
-
-    // Load child into the same project.
-    // Note: loadIntoProject manages the loading stack internally
-    await this.loadIntoProject(project, stream);
-    try {
-      return project.getCircuitByName(chipName) ?? null;
-    } catch {
-      return null;
+    // CircuitLoggable passthrough (if CircuitLoader doesn’t already implement these):
+    log(level: LogLevel, message: string, data?: any): void {
+        super.log(level, message, data);
     }
-  }
 
-  // CircuitLoggable passthrough (if CircuitLoader doesn’t already implement these):
-  log(level: LogLevel, message: string, data?: any): void {
-    super.log(level, message, data);
-  }
-  propagateLoggersTo(obj: CircuitLoggable): void {
-    super.propagateLoggersTo(obj);
-  }
+    propagateLoggersTo(obj: CircuitLoggable): void {
+        super.propagateLoggersTo(obj);
+    }
+
+    private async openChildHDL(chipName:string): Promise<Stream | null> {
+        const filePath = path.join(this.workingDir, `${chipName}.hdl`);
+
+        try {
+            await fs.promises.access(filePath, fs.constants.R_OK);
+        } catch{
+            return null; //file cannot be reached or does not exis
+        }
+        return fs.createReadStream(filePath);
+
+    }
+
 }
