@@ -1,6 +1,6 @@
 # Willow Digital Logic Simulator
 
-**Willow DLS** is a digital logic simulator written in TypeScript with support for loading and executing circuits written using educational logic simulators such as [CircuitVerse](https://circuitverse.org), [JLS](https://github.com/anadon/JLS) and [LogiSim](https://cburch.com/logisim/). It is platform- and simulator-agnostic, and is primarily intended to be used for headless testing of circuits via a unit testing framework such as [Jest](https://jestjs.io/). Willow was created as an undergraduate capstone project at [Grand Valley State University](https://www.gvsu.edu/computing/) but is now published as an open-source package.
+**Willow DLS** is a digital logic simulator written in TypeScript with support for loading and executing circuits written using educational logic simulators such as [CircuitVerse](https://circuitverse.org), [JLS](https://github.com/anadon/JLS), [LogiSim](https://cburch.com/logisim/), and [Nand2Tetris](https://www.nand2tetris.org). It is platform- and simulator-agnostic, and is primarily intended to be used for headless testing of circuits via a unit testing framework such as [Jest](https://jestjs.io/). Willow was created as an undergraduate capstone project at [Grand Valley State University](https://www.gvsu.edu/computing/) but is now published as an open-source package.
 
 > [!NOTE]
 > Willow is a _headless_ DLS _framework_. It does not implement a GUI and has no intentions to do so. The intended use cases are:
@@ -292,6 +292,15 @@ Contributing to this project is as straightforward as most others these days. Ju
 Then you can commit and push your changes.
 
 ## Change Log
+
+### v0.5.0
+
+- **Added Nand2Tetris loader** (`Nand2TetrisLoader`) for loading and executing circuits written in Nand2Tetris HDL format.
+  - Implemented HDL parser that supports chip declarations, input/output ports with bit widths, builtin specifications, and parts sections.
+  - Supports lazy loading of subcircuits with automatic dependency resolution.
+  - Includes cycle detection to prevent infinite recursion in circuit dependencies.
+  - Successfully loads and executes basic gates (Not, And, Or, Xor, Nand) and composite circuits (HalfAdder, FullAdder).
+  - **Known Limitation**: Bit slice syntax (e.g., `in[0]`, `out[15]`) is not yet supported. Circuits using bit indexing will fail to load correctly.
 
 ### v0.4.2
 
