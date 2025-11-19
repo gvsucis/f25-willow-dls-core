@@ -458,6 +458,7 @@ Then you can commit and push your changes.
   - Includes cycle detection to prevent infinite recursion in circuit dependencies.
   - Successfully loads and executes basic gates (Not, And, Or, Xor, Nand) and composite circuits (HalfAdder, FullAdder).
   - **Known Limitation**: Bit slice syntax (e.g., `in[0]`, `out[15]`) is not yet supported. Circuits using bit indexing will fail to load correctly.
+- **Updated documentation** with comprehensive unit testing examples for all supported simulators (CircuitVerse, JLS, LogiSim, and Nand2Tetris).
 
 ### v0.4.2
 
