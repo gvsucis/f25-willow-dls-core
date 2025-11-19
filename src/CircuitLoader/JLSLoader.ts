@@ -478,9 +478,22 @@ export class JLSLoader extends CircuitLoader {
     //
     // This seems like it could loop forever for malformed inputs, but any valid JLS
     // save should work properly with this.
+    let maxIterations = parsedWires.length * 10;
+    let iterations = 0;
     while (parsedWires.length != Object.values(wires).length) {
+      if (iterations++ > maxIterations) {
+        const missing = parsedWires.filter(w => !wires[w.props["id"][0]]);
+        throw new Error(
+          `Unable to determine wire widths after ${maxIterations} iterations. ` +
+          `Missing wires: ${missing.map(w => w.props["id"][0]).join(", ")}`
+        );
+      }
+
+      const wireCountBefore = Object.keys(wires).length;
       for (const parsedWire of parsedWires) {
         const id = parsedWire.props["id"][0];
+        if (wires[id]) continue; // Skip already created wires
+
         const connectedTo = parsedWire.props["wire"];
         for (const connectedId of connectedTo) {
           if (wires[connectedId]) {
@@ -488,6 +501,15 @@ export class JLSLoader extends CircuitLoader {
             break;
           }
         }
+      }
+
+      // If we made no progress in this iteration, we're stuck
+      if (Object.keys(wires).length === wireCountBefore) {
+        const missing = parsedWires.filter(w => !wires[w.props["id"][0]]);
+        throw new Error(
+          `Unable to determine wire widths - no progress made. ` +
+          `Missing wires: ${missing.map(w => `${w.props["id"][0]} (connects to: ${w.props["wire"]?.join(", ") || "none"})`).join(", ")}`
+        );
       }
     }
 
@@ -594,8 +616,8 @@ export class JLSLoader extends CircuitLoader {
     // Final pass: Ensure all connected wires have consistent widths by propagating
     // the maximum width through each connected group. This fixes cases where wires
     // are connected across subcircuits with incompatible widths.
-    const visited = new Set<string>();
-    const propagateMaxWidth = (bus: CircuitBus, maxWidth: number): number => {
+    const visitedGlobal = new Set<string>();
+    const propagateMaxWidth = (bus: CircuitBus, visited: Set<string>, maxWidth: number): number => {
       const busId = bus.getId();
       if (visited.has(busId)) {
         return maxWidth;
@@ -607,7 +629,7 @@ export class JLSLoader extends CircuitLoader {
 
       // Recursively check all connected buses
       for (const connected of bus.getConnections()) {
-        maxWidth = propagateMaxWidth(connected, maxWidth);
+        maxWidth = propagateMaxWidth(connected, visited, maxWidth);
       }
 
       return maxWidth;
@@ -615,15 +637,27 @@ export class JLSLoader extends CircuitLoader {
 
     // For each wire, find the maximum width in its connected group and apply it
     for (const wire of Object.values(wires)) {
-      visited.clear();
-      const maxWidth = propagateMaxWidth(wire, 0);
-      if (maxWidth > wire.getWidth()) {
-        this.log(
-          LogLevel.TRACE,
-          `Propagating max width to connected group: [id = ${wire.getId()}]: ${wire.getWidth()} => ${maxWidth}`,
-        );
-        wire.setWidth(maxWidth);
+      if (visitedGlobal.has(wire.getId())) {
+        continue; // Skip wires we've already processed as part of another connected group
       }
+
+      const visited = new Set<string>();
+      const maxWidth = propagateMaxWidth(wire, visited, 0);
+
+      // Mark all wires in this group as visited globally
+      visited.forEach(id => visitedGlobal.add(id));
+
+      // Apply the max width to all wires in this connected group
+      visited.forEach(id => {
+        const connectedWire = Object.values(wires).find(w => w.getId() === id);
+        if (connectedWire && maxWidth > connectedWire.getWidth()) {
+          this.log(
+            LogLevel.TRACE,
+            `Propagating max width to connected group: [id = ${connectedWire.getId()}]: ${connectedWire.getWidth()} => ${maxWidth}`,
+          );
+          connectedWire.setWidth(maxWidth);
+        }
+      });
     }
 
     // All wires are connected, now create the elements and attach them to their

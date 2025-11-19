@@ -187,11 +187,9 @@ export class Splitter extends CircuitElement {
       );
     }
 
-    if (split.reduce((a, b) => a + b, 0) != input.getWidth()) {
-      throw new Error(
-        `Splitter: splits must total to the width of the input bus: ${split.reduce((a, b) => a + b, 0)} != ${input.getWidth()}`,
-      );
-    }
+    // Note: The sum of split widths can exceed input.getWidth() when bits are duplicated
+    // across multiple outputs. We only check that split array length matches outputs length.
+    // Individual bit extraction bounds are checked during resolve().
 
     this.#split = split;
     this.#prevInput = null;
