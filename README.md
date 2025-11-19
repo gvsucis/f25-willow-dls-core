@@ -1,6 +1,6 @@
 # Willow Digital Logic Simulator
 
-**Willow DLS** is a digital logic simulator written in TypeScript with support for loading and executing circuits written using educational logic simulators such as [CircuitVerse](https://circuitverse.org), [JLS](https://github.com/anadon/JLS) and [LogiSim](https://cburch.com/logisim/). It is platform- and simulator-agnostic, and is primarily intended to be used for headless testing of circuits via a unit testing framework such as [Jest](https://jestjs.io/). Willow was created as an undergraduate capstone project at [Grand Valley State University](https://www.gvsu.edu/computing/) but is now published as an open-source package.
+**Willow DLS** is a digital logic simulator written in TypeScript with support for loading and executing circuits written using educational logic simulators such as [CircuitVerse](https://circuitverse.org), [JLS](https://github.com/anadon/JLS), [LogiSim](https://cburch.com/logisim/), and [Nand2Tetris](https://www.nand2tetris.org). It is platform- and simulator-agnostic, and is primarily intended to be used for headless testing of circuits via a unit testing framework such as [Jest](https://jestjs.io/). Willow was created as an undergraduate capstone project at [Grand Valley State University](https://www.gvsu.edu/computing/) but is now published as an open-source package.
 
 > [!NOTE]
 > Willow is a _headless_ DLS _framework_. It does not implement a GUI and has no intentions to do so. The intended use cases are:
@@ -98,7 +98,164 @@ If you prefer to configure your package manually, see [Manual Typescript Configu
 
 ## Writing Unit Tests
 
-** TO DO **
+Willow supports loading circuits from multiple educational simulators. Below are examples for each supported format:
+
+### CircuitVerse (.cv files)
+
+```typescript
+import { expect, beforeAll, test } from "@jest/globals";
+import { loadProject, CircuitVerseLoader } from "@willow-dls/core";
+
+let circuit;
+
+beforeAll(async () => {
+  const project = await loadProject(CircuitVerseLoader, "MyCircuit.cv");
+  circuit = project.getCircuitByName("Main");
+});
+
+test("Sample Test", () => {
+  const result = circuit.run({
+    inputA: "01",
+    inputB: "10",
+  });
+
+  expect(result.outputs.outputC).toBe("11");
+});
+```
+
+### JLS (.jls files)
+
+```typescript
+import { expect, beforeAll, test } from "@jest/globals";
+import { loadCircuit, JLSLoader } from "@willow-dls/core";
+
+let circuit;
+
+beforeAll(async () => {
+  circuit = await loadCircuit(
+    JLSLoader,
+    "MyCircuit.jls",
+    "CircuitName"
+  );
+});
+
+test("Sample Test", () => {
+  const result = circuit.run({
+    InputA: "0101",
+    InputB: "1010",
+  });
+
+  expect(result.outputs.OutputC).toBe("1111");
+});
+```
+
+### LogiSim (.circ files)
+
+```typescript
+import { expect, beforeAll, test } from "@jest/globals";
+import { loadCircuit, LogisimLoader } from "@willow-dls/core";
+
+let circuit;
+
+beforeAll(async () => {
+  circuit = await loadCircuit(
+    LogisimLoader,
+    "MyCircuit.circ",
+    "main"
+  );
+});
+
+test("Sample Test", () => {
+  const result = circuit.run({
+    A: "0011",
+    B: "0101",
+  });
+
+  expect(result.outputs.C).toBe("1000");
+});
+```
+
+### Nand2Tetris (.hdl files)
+
+For Nand2Tetris circuits that reference other chips, you can use either a working directory approach or a custom resolver:
+
+#### Option 1: Working Directory (Recommended)
+
+```typescript
+import { expect, beforeAll, test } from "@jest/globals";
+import { loadCircuit, Nand2TetrisLoader } from "@willow-dls/core";
+
+let circuit;
+
+beforeAll(async () => {
+  // Place all .hdl files in the same directory
+  circuit = await loadCircuit(
+    Nand2TetrisLoader,
+    "chips/FullAdder.hdl",
+    "FullAdder",
+    undefined, // no logger
+    "chips"    // working directory for subcircuits
+  );
+});
+
+test("FullAdder Test", () => {
+  const result = circuit.run({
+    a: "1",
+    b: "1",
+    c: "1",
+  });
+
+  expect(result.outputs.sum).toBe("1");
+  expect(result.outputs.carry).toBe("1");
+});
+```
+
+#### Option 2: Custom Resolver
+
+```typescript
+import { expect, beforeAll, test } from "@jest/globals";
+import { Nand2TetrisLoader } from "@willow-dls/core";
+import * as fs from "fs";
+import * as path from "path";
+
+let circuit;
+
+beforeAll(async () => {
+  const baseDir = "chips";
+
+  // Custom resolver to locate subcircuits
+  const resolver = async (chipName: string) => {
+    const hdlPath = path.join(baseDir, `${chipName}.hdl`);
+    if (fs.existsSync(hdlPath)) {
+      return fs.createReadStream(hdlPath);
+    }
+    return null;
+  };
+
+  const loader = new Nand2TetrisLoader(resolver);
+  const stream = fs.createReadStream(path.join(baseDir, "FullAdder.hdl"));
+  const project = await loader.load(stream);
+  circuit = project.getCircuitByName("FullAdder");
+});
+
+test("FullAdder Test", () => {
+  const result = circuit.run({
+    a: "1",
+    b: "1",
+    c: "1",
+  });
+
+  expect(result.outputs.sum).toBe("1");
+  expect(result.outputs.carry).toBe("1");
+});
+```
+
+> [!NOTE]
+> **Important Notes:**
+> - All inputs and outputs must have unique labels assigned in the circuit editor
+> - Input/output values can be BitString objects or strings of "0"s and "1"s
+> - The circuit name parameter must match the circuit name defined in the file
+> - Nand2Tetris circuits using bit slice syntax (e.g., `in[0]`, `out[15]`) are not yet supported
 
 ## Manual Typescript Configuration
 
@@ -292,6 +449,15 @@ Contributing to this project is as straightforward as most others these days. Ju
 Then you can commit and push your changes.
 
 ## Change Log
+
+### v0.5.0
+
+- **Added Nand2Tetris loader** (`Nand2TetrisLoader`) for loading and executing circuits written in Nand2Tetris HDL format.
+  - Implemented HDL parser that supports chip declarations, input/output ports with bit widths, builtin specifications, and parts sections.
+  - Supports lazy loading of subcircuits with automatic dependency resolution.
+  - Includes cycle detection to prevent infinite recursion in circuit dependencies.
+  - Successfully loads and executes basic gates (Not, And, Or, Xor, Nand) and composite circuits (HalfAdder, FullAdder).
+  - **Known Limitation**: Bit slice syntax (e.g., `in[0]`, `out[15]`) is not yet supported. Circuits using bit indexing will fail to load correctly.
 
 ### v0.4.2
 
