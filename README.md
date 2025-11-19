@@ -98,7 +98,164 @@ If you prefer to configure your package manually, see [Manual Typescript Configu
 
 ## Writing Unit Tests
 
-** TO DO **
+Willow supports loading circuits from multiple educational simulators. Below are examples for each supported format:
+
+### CircuitVerse (.cv files)
+
+```typescript
+import { expect, beforeAll, test } from "@jest/globals";
+import { loadProject, CircuitVerseLoader } from "@willow-dls/core";
+
+let circuit;
+
+beforeAll(async () => {
+  const project = await loadProject(CircuitVerseLoader, "MyCircuit.cv");
+  circuit = project.getCircuitByName("Main");
+});
+
+test("Sample Test", () => {
+  const result = circuit.run({
+    inputA: "01",
+    inputB: "10",
+  });
+
+  expect(result.outputs.outputC).toBe("11");
+});
+```
+
+### JLS (.jls files)
+
+```typescript
+import { expect, beforeAll, test } from "@jest/globals";
+import { loadCircuit, JLSLoader } from "@willow-dls/core";
+
+let circuit;
+
+beforeAll(async () => {
+  circuit = await loadCircuit(
+    JLSLoader,
+    "MyCircuit.jls",
+    "CircuitName"
+  );
+});
+
+test("Sample Test", () => {
+  const result = circuit.run({
+    InputA: "0101",
+    InputB: "1010",
+  });
+
+  expect(result.outputs.OutputC).toBe("1111");
+});
+```
+
+### LogiSim (.circ files)
+
+```typescript
+import { expect, beforeAll, test } from "@jest/globals";
+import { loadCircuit, LogisimLoader } from "@willow-dls/core";
+
+let circuit;
+
+beforeAll(async () => {
+  circuit = await loadCircuit(
+    LogisimLoader,
+    "MyCircuit.circ",
+    "main"
+  );
+});
+
+test("Sample Test", () => {
+  const result = circuit.run({
+    A: "0011",
+    B: "0101",
+  });
+
+  expect(result.outputs.C).toBe("1000");
+});
+```
+
+### Nand2Tetris (.hdl files)
+
+For Nand2Tetris circuits that reference other chips, you can use either a working directory approach or a custom resolver:
+
+#### Option 1: Working Directory (Recommended)
+
+```typescript
+import { expect, beforeAll, test } from "@jest/globals";
+import { loadCircuit, Nand2TetrisLoader } from "@willow-dls/core";
+
+let circuit;
+
+beforeAll(async () => {
+  // Place all .hdl files in the same directory
+  circuit = await loadCircuit(
+    Nand2TetrisLoader,
+    "chips/FullAdder.hdl",
+    "FullAdder",
+    undefined, // no logger
+    "chips"    // working directory for subcircuits
+  );
+});
+
+test("FullAdder Test", () => {
+  const result = circuit.run({
+    a: "1",
+    b: "1",
+    c: "1",
+  });
+
+  expect(result.outputs.sum).toBe("1");
+  expect(result.outputs.carry).toBe("1");
+});
+```
+
+#### Option 2: Custom Resolver
+
+```typescript
+import { expect, beforeAll, test } from "@jest/globals";
+import { Nand2TetrisLoader } from "@willow-dls/core";
+import * as fs from "fs";
+import * as path from "path";
+
+let circuit;
+
+beforeAll(async () => {
+  const baseDir = "chips";
+
+  // Custom resolver to locate subcircuits
+  const resolver = async (chipName: string) => {
+    const hdlPath = path.join(baseDir, `${chipName}.hdl`);
+    if (fs.existsSync(hdlPath)) {
+      return fs.createReadStream(hdlPath);
+    }
+    return null;
+  };
+
+  const loader = new Nand2TetrisLoader(resolver);
+  const stream = fs.createReadStream(path.join(baseDir, "FullAdder.hdl"));
+  const project = await loader.load(stream);
+  circuit = project.getCircuitByName("FullAdder");
+});
+
+test("FullAdder Test", () => {
+  const result = circuit.run({
+    a: "1",
+    b: "1",
+    c: "1",
+  });
+
+  expect(result.outputs.sum).toBe("1");
+  expect(result.outputs.carry).toBe("1");
+});
+```
+
+> [!NOTE]
+> **Important Notes:**
+> - All inputs and outputs must have unique labels assigned in the circuit editor
+> - Input/output values can be BitString objects or strings of "0"s and "1"s
+> - The circuit name parameter must match the circuit name defined in the file
+> - Nand2Tetris circuits using bit slice syntax (e.g., `in[0]`, `out[15]`) are not yet supported
 
 ## Manual Typescript Configuration
 
