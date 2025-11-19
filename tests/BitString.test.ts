@@ -298,3 +298,47 @@ test(`0001 + 0001 => 0010`, () => {
   const one = new BitString("1", 4);
   expect(one.add(one).toString()).toBe("0010");
 });
+
+// Extra tests merged from BitString.extra.test.ts
+test("constructor rejects non-binary/non-hex strings", () => {
+  expect(() => new BitString("2")).toThrow("Not a hex or binary string");
+});
+
+test("hex '0x0' converts to single zero bit and back to hex", () => {
+  const b = new BitString("0x0");
+  expect(b.toString()).toBe("0");
+  expect(b.toString(16)).toBe("0x0");
+});
+
+test("equals(null) returns false", () => {
+  const b = new BitString("101");
+  expect(b.equals(null)).toBe(false);
+});
+
+test("greaterThan / lessThan handle null and string inputs", () => {
+  const a = new BitString("0011");
+  const b = new BitString("0010");
+
+  expect(a.greaterThan(b)).toBe(true);
+  expect(b.lessThan(a)).toBe(true);
+
+  // null handling
+  expect(a.greaterThan(null)).toBe(false);
+  expect(a.lessThan(null)).toBe(false);
+
+  // string inputs
+  expect(a.greaterThan("0010")).toBe(true);
+  expect(b.lessThan("0011")).toBe(true);
+});
+
+test("twosCompliment edge cases and lsb/msb boundaries", () => {
+  const one = new BitString("0", 1);
+  // twos compliment of 0 (width 1) => not(0)=1 add 1 => 0 (wrap)
+  const tc = one.twosCompliment();
+  expect(tc.getWidth()).toBe(1);
+
+  // msb/lsb when n equals width should return same string
+  const s = new BitString("1010");
+  expect(s.msb(4).toString()).toBe(s.toString());
+  expect(s.lsb(4).toString()).toBe(s.toString());
+});

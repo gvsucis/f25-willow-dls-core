@@ -94,6 +94,16 @@ export class Splitter extends CircuitElement {
     let off = 0;
 
     for (const s in this.#split) {
+      // IMPORTANT: CircuitVerse (and therefore this loader/constructor) stores
+      // splitter output indices in a reversed order compared to the natural
+      // left-to-right visual ordering. The implementation below intentionally
+      // computes the output index as (length - 1 - s) so that the first slice
+      // of the input (offset 0..n) maps to the last output bus in the
+      // underlying bus array. This mirrors CircuitVerse's ordering so that
+      // loaded circuits behave the same as they did in the source tool.
+      //
+      // Do not change this mapping lightly — it's an intentional compatibility
+      // decision and tests rely on this behavior.
       let i = this.#split.length - 1 - parseInt(s);
 
       const split = this.#split[i];
