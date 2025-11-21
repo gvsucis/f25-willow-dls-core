@@ -1,0 +1,23 @@
+// Mux8Way16.hdl
+// Selects one of eight 16-bit inputs based on sel[3].
+
+CHIP Mux8Way16 {
+    IN  a[16], b[16], c[16], d[16],
+        e[16], f[16], g[16], h[16],
+        sel[3];
+    OUT out[16];
+
+    PARTS:
+    // First stage: pairwise muxes using sel[0]
+    Mux16(a=a, b=b, sel=sel[0], out=ab);
+    Mux16(a=c, b=d, sel=sel[0], out=cd);
+    Mux16(a=e, b=f, sel=sel[0], out=ef);
+    Mux16(a=g, b=h, sel=sel[0], out=gh);
+
+    // Second stage: group into upper/lower 4-way using sel[1]
+    Mux16(a=ab, b=cd, sel=sel[1], out=abcd);
+    Mux16(a=ef, b=gh, sel=sel[1], out=efgh);
+
+    // Third stage: final choice between the two 4-way results with sel[2]
+    Mux16(a=abcd, b=efgh, sel=sel[2], out=out);
+}

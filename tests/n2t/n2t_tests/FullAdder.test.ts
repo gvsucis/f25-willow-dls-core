@@ -18,7 +18,7 @@ beforeAll(async () => {
   };
 
   const loader = new Nand2TetrisLoader(resolver);
-  const stream = fs.createReadStream("tests/n2t/nand_up_chips/FullAdder.hdl");
+  const stream = fs.createReadStream("tests/n2t/nand_up_chips/FullAdder/FullAdder.hdl");
   const project = await loader.load(stream);
   circuit = project.getCircuitByName("FullAdder");
 });

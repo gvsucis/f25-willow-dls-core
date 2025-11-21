@@ -7,7 +7,7 @@ let circuit: Circuit;
 beforeAll(async () => {
   circuit = await loadCircuit(
     Nand2TetrisLoader,
-    "tests/n2t/nand_up_chips/DMux8Way.hdl",
+    "tests/n2t/nand_up_chips/DMux8Way/DMux8Way.hdl",
     "DMux8Way",
   );
 });
@@ -36,7 +36,15 @@ function genTest(
   outputs: { a: string; b: string; c: string; d: string; e: string; f: string; g: string; h: string }
 ) {
   return () => {
+    const result = circuit.run(inputs);
     const actualOutputs = circuit.run(inputs).outputs;
+    console.log("DEBUG DMux8Way result:", {
+      outputsKeys: Object.keys(actualOutputs),
+      outValue: actualOutputs.out,
+      rawResult: result,
+    });
+
+    
     expect(actualOutputs.a.toString()).toStrictEqual(outputs.a);
     expect(actualOutputs.b.toString()).toStrictEqual(outputs.b);
     expect(actualOutputs.c.toString()).toStrictEqual(outputs.c);

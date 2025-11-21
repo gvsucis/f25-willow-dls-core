@@ -7,7 +7,7 @@ let circuit: Circuit;
 beforeAll(async () => {
   circuit = await loadCircuit(
     Nand2TetrisLoader,
-    "tests/n2t/nand_up_chips/Mux4Way16.hdl",
+    "tests/n2t/nand_up_chips/Mux4Way16/Mux4Way16.hdl",
     "Mux4Way16",
   );
 });
