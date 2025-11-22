@@ -36,13 +36,13 @@ function genTest(
   outputs: { a: string; b: string; c: string; d: string; e: string; f: string; g: string; h: string }
 ) {
   return () => {
-    const result = circuit.run(inputs);
+    //const result = circuit.run(inputs);
     const actualOutputs = circuit.run(inputs).outputs;
-    console.log("DEBUG DMux8Way result:", {
-      outputsKeys: Object.keys(actualOutputs),
-      outValue: actualOutputs.out,
-      rawResult: result,
-    });
+    // console.log("DEBUG DMux8Way result:", {
+    //   outputsKeys: Object.keys(actualOutputs),
+    //   outValue: actualOutputs.out,
+    //   rawResult: result,
+    // });
 
     
     expect(actualOutputs.a.toString()).toStrictEqual(outputs.a);

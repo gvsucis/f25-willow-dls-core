@@ -88,6 +88,9 @@ import {XorGate} from "../CircuitElement/XorGate"
 // parts = [{ type: string, args: Record<string,string> }, ...]
 import { parseHDL } from "./hdl/parseHDL"; // adjust path to your HDL parser
 import { warn } from "console";
+//HDL busslices (analogous to splitter, but used internally)
+import { BitSliceElement } from "../CircuitElement/BitSliceElement";
+import { RangeSliceElement } from "../CircuitElement/RangeSliceElement";
 
 // -------------------------------------------------------------------------------------
 // Types
@@ -138,18 +141,28 @@ function normName(s: string): string {
 const createElement: Record<string, ElementMaker> = {
   And: (i, o) => new AndGate(i, o),
   And16: (i, o) => new And16(i, o),
-  // Inc16: (i, o) => new Inc16(i, o),
   Nand: (i, o) => new NandGate(i, o),
   Not: (i, o) => new NotGate(i, o),
   Not16: (i, o) => new Not16(i, o),
-  Or: (i, o) => new OrGate(i, o),
   Or16: (i, o) => new Or16(i, o),
-  // Or8Way: (i, o) => new Or8Way(i, o),
+  Or: (i, o) => new OrGate(i, o),
+  //Or8Way: (i, o) => new Or8Way(i, o), //Input takes in CircuitBus not CircuitBus[]????
   Xor: (i, o) => new XorGate(i, o),
+  
+
+  // Inc16: (i, o) => new Inc16(i, o),
 
   // Multi input circuit elements 
-  Add16: (i, o) => new Add16(i[0], i[1], o[0]),
-  Bit: (i, o) => new Bit(i[0], i[1], o[0]),
+  Add16: (i, o) => new Add16(
+    i[0],   //a
+    i[1],   //b
+    o[0]    //out
+  ),
+  Bit: (i, o) => new Bit(
+    i[0],   //in 
+    i[1],   //load
+    o[0]    //out
+  ),
   DFF: (i, o) => new DFlipFlop(     
         i[0], // clock
         i[1], // d
@@ -184,42 +197,53 @@ const createElement: Record<string, ElementMaker> = {
         o[6], // g
         o[7], // h
   ),
-  // DRegister: () => new DRegister(), //not yet supported by Willow
-  FullAdder: (i, o) => new FullAdder(i[0], i[1], i[2], o[0], o[1]),
-  HalfAdder: (i, o) => new HalfAdder(i[0], i[1], o[0], o[1]),
-  // Keyboard: () => new Keyboard(), //not yet supported  by Willow
+  FullAdder: (i, o) => new FullAdder(
+    i[0], 
+    i[1], 
+    i[2], 
+    o[0], 
+    o[1]
+  ),
+  HalfAdder: (i, o) => new HalfAdder(
+    i[0], 
+    i[1], 
+    o[0], 
+    o[1]
+  ),
   Mux: (i, o) => new Multiplexer(
-            [i[0], i[1]],   // data inputs: a, b
-            o,              // ["out"]
-            i[2],           // sel
+    [i[0], i[1]],   // data inputs: a, b
+    o,              // ["out"]
+    i[2],           // sel
   ),
   Mux16: (i, o) => new Mux16(
-        i[0], // a
-        i[1], // b
-        i[2], // sel
-        o[0], // out
+    i[0], // a
+    i[1], // b
+    i[2], // sel
+    o[0], // out
   ),
   Mux4Way16: (i, o) => new Mux4Way16(
-        i[0], // a
-        i[1], // b
-        i[2], // c
-        i[3], // d
-        i[4], // sel
-        o[0], // out
+    i[0], // a
+    i[1], // b
+    i[2], // c
+    i[3], // d
+    i[4], // sel
+    o[0], // out
   ),
   Mux8Way16: (i, o) => new Mux8Way16(
-        i[0], // a
-        i[1], // b
-        i[2], // c
-        i[3], // d
-        i[4], // e
-        i[5], // f
-        i[6], // g
-        i[7], // h
-        i[8], // sel
-        o[0], // out
+    i[0], // a
+    i[1], // b
+    i[2], // c
+    i[3], // d
+    i[4], // e
+    i[5], // f
+    i[6], // g
+    i[7], // h
+    i[8], // sel
+    o[0], // out
   ),
-
+  
+  // DRegister: () => new DRegister(), //not yet supported by Willow
+  // Keyboard: () => new Keyboard(), //not yet supported  by Willow
   // PC: () => new PC(), not yet supported by Willow
   // RAM16K: () => new RAM16K(), not yet supported by Willow
   // RAM4K: () => new RAM4K(), not yet supported by Willow
@@ -247,6 +271,7 @@ const createElementByNorm = new Map<string, ElementMaker>(
  * ADD HERE when you need canonical pin orders for a chip (e.g., Mux, DMux, ALU).
  */
 const PIN_ORDERS: Record<string, { inPins: string[]; outPins: string[] }> = {
+  
   // Arithmetic
   HalfAdder:  { inPins: ["a", "b"],           outPins: ["sum", "carry"] },
   FullAdder:  { inPins: ["a", "b", "c"],      outPins: ["sum", "carry"] },
@@ -309,29 +334,6 @@ function ensureBus(
   return b;
 }
 
-/**
- * Resolve a pin RHS reference into a CircuitBus.
- * Handles:
- *  - named buses: "foo", "bar"
- *  - bit slices: "foo[3]" (returns a 1-bit view; for simplicity we just ensure the base bus)
- *  - constants: e.g., "true", "false", "0", "1" (if you support const buses, add that here)
- *  - concatenations: "{a, b, c}" (if supported; otherwise wire by named nets)
- *
- * This is a placeholder; wire it to your existing implementation if you already have one.
- */
-//TODO: 
-function resolveSignal(
-  table: Record<string, CircuitBus>,
-  ref: string,
-  widthHint: number,
-): CircuitBus {
-  // Very simple version: only plain names. Extend to slices/consts/concat if your HDL supports them.
-  // Example extension points:
-  //  - if (/^\{.*\}$/.test(ref)) { ... handle concatenation ... }
-  //  - if (/^\w+\[\d+\]$/.test(ref)) { ... handle bit slice ... }
-  //  - if (ref === "true" || ref === "false" || /^[01]$/.test(ref)) { ... constants ... }
-  return ensureBus(table, ref, widthHint);
-}
 
 // -------------------------------------------------------------------------------------
 // Nand2TetrisLoader
@@ -344,6 +346,19 @@ function resolveSignal(
  */
 export type ChildResolver = (chipName: string) => Promise<Stream | null>;
 
+//POD types for "splitter esq bus-element"
+type BitSliceSpec = {
+  baseName: string; //sel
+  bitIndex: number; // 3
+  sliceName: string; //sel[3]
+};
+type RangeSliceSpec = {
+  baseName: string; //foo
+  lo: number; //2
+  hi: number;  //7
+  rangeName: string; //foo[2..7]
+};
+
 /**
  * Nand2TetrisLoader
  * - Unifies BUILTIN and PARTS resolution:
@@ -354,7 +369,9 @@ export type ChildResolver = (chipName: string) => Promise<Stream | null>;
 export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable {
     private readonly workingDir: string;
     private loadingStack = new Set<string>(); // cycle guard
-
+    private bitSlices: BitSliceSpec[] = [];
+    private rangeSlices: RangeSliceSpec[] = [];
+  
     constructor(workingDir:string = process.cwd()){
         super();
         this.workingDir = workingDir;
@@ -411,6 +428,8 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
     ): Promise<{ elements: CircuitElement[] }> {
         const busses: Record<string, CircuitBus> = {};
         const elements: CircuitElement[] = [];
+        this.bitSlices = [];
+        this.rangeSlices = []
 
 
         const hasBuiltin = !!hdl.builtin && hdl.builtin.trim().length > 0;
@@ -451,6 +470,8 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
             const ins: CircuitBus[] = hdl.inputs.map((p)=> ensureBus (busses, p.name, p.width));
             const outs: CircuitBus[] = hdl.outputs.map((p) => ensureBus(busses, p.name, p.width));
             elements.push(maker(ins, outs))
+            this.attachSliceElements(busses, elements);
+
             return {elements};
         }
 
@@ -459,6 +480,7 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
             for (const part of hdl.parts!) {
                 await this.instantiatePart(project, hdl, part, busses, elements);
             }
+            this.attachSliceElements(busses, elements);
             return {elements};
         }
         
@@ -467,6 +489,7 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
             LogLevel.WARN,
             `HDL chip '${hdl.name}' has no BUILTIN and no PARTS; creating IO-only shell.`,
         );
+        this.attachSliceElements(busses, elements);
         return { elements };
     }
 
@@ -508,7 +531,7 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
                   );
                 }
                 //width hint is conservative, ensureBus will reconcile
-                return resolveSignal(busses, ref, 1);
+                return this.resolveSignal(busses, ref, 1);
             });
 
             const outByOrder = childOutputNames.map((pin) => {
@@ -519,7 +542,7 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
                         `is missing a connection for output pin '${pin}'.`,
                     );
                 }
-                return resolveSignal(busses, ref, 1);
+                return this.resolveSignal(busses, ref, 1);
              });
 
             elements.push(new SubCircuit(child, inByOrder, outByOrder));
@@ -539,7 +562,7 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
                         `input pin '${pin}'.`,
                   );
                 }
-                return resolveSignal(busses, ref, 1);
+                return this.resolveSignal(busses, ref, 1);
             });
 
             const outs: CircuitBus[] = outPins.map((pin) => {
@@ -550,7 +573,7 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
                         `output pin '${pin}'.`,
                     );
                 }
-                return resolveSignal(busses, ref, 1);
+                return this.resolveSignal(busses, ref, 1);
             });
         // Any remaining pins (e.g. select lines) can be passed as "extra"
             const extra: Record<string, string> = {};
@@ -641,5 +664,101 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
         return fs.createReadStream(filePath);
 
     }
+
+
+    /**
+   * Resolve a pin RHS reference into a CircuitBus.
+   * Handles:
+   *  - named buses: "foo", "bar"
+   *  - bit slices: "foo[3]" (returns a 1-bit view; for simplicity we just ensure the base bus)
+   *  - constants: e.g., "true", "false", "0", "1" (if you support const buses, add that here)
+   *  - concatenations: "{a, b, c}" (if supported; otherwise wire by named nets)
+   *
+   * This is a placeholder; wire it to your existing implementation if you already have one.
+   */
+  //TODO: 
+  private resolveSignal(
+    table: Record<string, CircuitBus>,
+    ref: string,
+    widthHint: number,
+  ): CircuitBus {
+    const trimmed = ref.trim()
+
+    //1) concatenation? {a, b[0..3], true}
+    if (trimmed.startsWith("{") && trimmed.endsWith("}")){
+      const inner = trimmed.slice(1, -1); // strip { }
+      const parts = inner.split(",").map((s) => s.trim());
+
+      //Recursibly resolve each part to get widths;
+      let totalWidth = 0;
+      for (const p of parts) {
+        const b = this.resolveSignal(table, p, 1);
+        totalWidth += b.getWidth();
+      }
+      const key = trimmed;
+      return ensureBus(table, key, Math.max(widthHint, totalWidth));
+    }
+
+    //2) Range slice? foo[3..6]
+    const rangeMatch = /^([A-Za-z_]\w*)\[(\d+)\.\.(\d+)\]$/.exec(trimmed);
+    if (rangeMatch){
+      const baseName = rangeMatch[1];
+      const lo = parseInt(rangeMatch[2], 10); //10=base 10
+      const hi = parseInt(rangeMatch[3],10);
+      const width = Math.abs(hi - lo) + 1;
+      const rangeName = `${baseName}[${lo}..${hi}]`;
+      const rangeBus = ensureBus(table, rangeName, width);
+      this.rangeSlices.push( {baseName, lo, hi, rangeName});
+      return rangeBus;
+    }
+
+    //3) Single-bit slice? foo[3]
+    const bitMatch =  /^([A-Za-z_]\w*)\[(\d+)\]$/.exec(trimmed);
+    if (bitMatch) {
+      const baseName = bitMatch[1];
+      const bitIndex = parseInt(bitMatch[2], 10); //10=base 10
+      const sliceName = `${baseName}[${bitIndex}]`;
+      const sliceBus =  ensureBus(table, sliceName, 1);
+      this.bitSlices.push( {baseName, bitIndex, sliceName});
+      return sliceBus;
+    }
+
+    //4) constants? true/false/0/1
+
+    if (trimmed ==="true" || trimmed === "false" || trimmed === "0" || trimmed === "1") {
+      const name = `$const_${trimmed}`;
+      return ensureBus(table, name, Math.max(widthHint, 1))
+    }
+
+    //Else Plain Bus name.
+    return ensureBus(table, trimmed, widthHint);
+  }
+
+  private attachSliceElements(
+    busses: Record<string, CircuitBus>,
+    elements: CircuitElement[],
+  ):void {
+    for (const spec of this.bitSlices){
+      const base = busses[spec.baseName];
+      const slice = busses[spec.sliceName];
+
+      if (!base || !slice){
+        this.log(LogLevel.WARN, `Missing buses for bit slice ${spec.baseName}[${spec.bitIndex}]`);
+        continue;
+      }
+
+      elements.push( new BitSliceElement(base, spec.bitIndex, slice));
+    }
+    
+    for (const spec of this.rangeSlices) {
+      const base = busses[spec.baseName];
+      const range = busses[spec.rangeName];
+      if (!base || !range) continue;
+
+      elements.push( new RangeSliceElement(base, spec.lo, spec.hi, range));
+      
+    }
+    }
+
 
 }
