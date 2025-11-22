@@ -42,6 +42,7 @@ import { LogLevel } from "../CircuitLogger";
  */
 export class Splitter extends CircuitElement {
   #split: number[];
+  #bitMappings: number[][] | undefined; // Optional: for non-contiguous bit extraction
   #prevInput: BitString | null;
   #prevOutputs: (BitString | null)[] | null;
   #lastOp: string | null;
@@ -89,36 +90,93 @@ export class Splitter extends CircuitElement {
     return o;
   }
 
+  // Check if input and outputs are consistent (represent the same data)
+  #areConsistent(input: BitString, outputs: (BitString | null)[]): boolean {
+    if (this.#bitMappings) {
+      // With bit mappings, we need to check if extracting the bits from input
+      // matches what's in the outputs
+      for (let s = 0; s < this.#split.length; s++) {
+        let i = this.#split.length - 1 - s;
+        const bitIndices = this.#bitMappings[i];
+        const output = outputs[i];
+
+        if (!output) return false;
+
+        // Extract the expected bits from input
+        let expectedValue = "";
+        for (const bitIndex of bitIndices) {
+          expectedValue += input.substring(bitIndex, bitIndex + 1).toString();
+        }
+
+        if (expectedValue !== output.toString()) {
+          return false;
+        }
+      }
+      return true;
+    } else {
+      // Without bit mappings, use the original sequential join check
+      return input.equals(new BitString(outputs.join("")));
+    }
+  }
+
   #propOut(input: BitString) {
     this.log(LogLevel.TRACE, "Splitting input into outputs...");
-    let off = 0;
 
-    for (const s in this.#split) {
-      // IMPORTANT: CircuitVerse (and therefore this loader/constructor) stores
-      // splitter output indices in a reversed order compared to the natural
-      // left-to-right visual ordering. The implementation below intentionally
-      // computes the output index as (length - 1 - s) so that the first slice
-      // of the input (offset 0..n) maps to the last output bus in the
-      // underlying bus array. This mirrors CircuitVerse's ordering so that
-      // loaded circuits behave the same as they did in the source tool.
-      //
-      // Do not change this mapping lightly — it's an intentional compatibility
-      // decision and tests rely on this behavior.
-      let i = this.#split.length - 1 - parseInt(s);
+    if (this.#bitMappings) {
+      // Non-contiguous bit extraction mode: use bit mappings
+      for (const s in this.#split) {
+        // IMPORTANT: CircuitVerse (and therefore this loader/constructor) stores
+        // splitter output indices in a reversed order compared to the natural
+        // left-to-right visual ordering. The implementation below intentionally
+        // computes the output index as (length - 1 - s) so that the first slice
+        // of the input (offset 0..n) maps to the last output bus in the
+        // underlying bus array. This mirrors CircuitVerse's ordering so that
+        // loaded circuits behave the same as they did in the source tool.
+        //
+        // Do not change this mapping lightly — it's an intentional compatibility
+        // decision and tests rely on this behavior.
+        let i = this.#split.length - 1 - parseInt(s);
 
-      const split = this.#split[i];
-      const output = super.getOutputs().slice(1)[i];
+        const bitIndices = this.#bitMappings[i];
+        const output = super.getOutputs().slice(1)[i];
 
-      this.log(LogLevel.TRACE, `Computing ${input}[${off}:${off + split}]...`);
-      const value = input.substring(off, off + split);
-      this.log(
-        LogLevel.TRACE,
-        `Got value: ${value} (width = ${value.getWidth()})`,
-      );
-      this.log(LogLevel.TRACE, `Output bus width: ${output.getWidth()}`);
-      output.setValue(value);
+        this.log(LogLevel.TRACE, `Extracting bits ${bitIndices.join(',')} from ${input}...`);
 
-      off += split;
+        // Extract the specified bits and concatenate them
+        let value = "";
+        for (const bitIndex of bitIndices) {
+          value += input.substring(bitIndex, bitIndex + 1).toString();
+        }
+
+        const bitString = new BitString(value);
+        this.log(
+          LogLevel.TRACE,
+          `Got value: ${bitString} (width = ${bitString.getWidth()})`,
+        );
+        this.log(LogLevel.TRACE, `Output bus width: ${output.getWidth()}`);
+        output.setValue(bitString);
+      }
+    } else {
+      // Sequential contiguous extraction mode (original behavior)
+      let off = 0;
+
+      for (const s in this.#split) {
+        let i = this.#split.length - 1 - parseInt(s);
+
+        const split = this.#split[i];
+        const output = super.getOutputs().slice(1)[i];
+
+        this.log(LogLevel.TRACE, `Computing ${input}[${off}:${off + split}]...`);
+        const value = input.substring(off, off + split);
+        this.log(
+          LogLevel.TRACE,
+          `Got value: ${value} (width = ${value.getWidth()})`,
+        );
+        this.log(LogLevel.TRACE, `Output bus width: ${output.getWidth()}`);
+        output.setValue(value);
+
+        off += split;
+      }
     }
 
     this.#lastOp = "propOut";
@@ -126,25 +184,85 @@ export class Splitter extends CircuitElement {
 
   #propIn() {
     this.log(LogLevel.TRACE, "Combining outputs into input...");
-    let newOut = "";
 
-    for (let s in this.#split) {
-      let i = this.#split.length - 1 - parseInt(s);
-      const split = this.#split[i];
-      const output = super.getOutputs().slice(1)[i];
-      const val = output.getValue();
+    if (this.#bitMappings) {
+      // Non-contiguous bit combination mode: use bit mappings
+      // We need to determine the input width by finding the maximum bit index
+      let maxBitIndex = -1;
+      for (const bitIndices of this.#bitMappings) {
+        for (const bitIndex of bitIndices) {
+          maxBitIndex = Math.max(maxBitIndex, bitIndex);
+        }
+      }
+      const inputWidth = maxBitIndex + 1;
 
-      if (output.getWidth() != split) {
-        throw new Error(
-          `SplitterElement bus width error: Received ${output.getWidth()}-bit value on ${split}-bit bus.`,
-        );
+      // Initialize input bits array with null (to detect conflicts)
+      const inputBits: (string | null)[] = new Array(inputWidth).fill(null);
+
+      // Place each output's bits into the input array
+      for (let s in this.#split) {
+        let i = this.#split.length - 1 - parseInt(s);
+        const bitIndices: number[] = this.#bitMappings[i];
+        const output = super.getOutputs().slice(1)[i];
+        const val = output.getValue();
+
+        if (!val) {
+          this.log(LogLevel.TRACE, `Output ${i} has no value, using zeros.`);
+          continue;
+        }
+
+        if (val.getWidth() != bitIndices.length) {
+          throw new Error(
+            `SplitterElement bus width error: Output ${i} received ${val.getWidth()}-bit value but expected ${bitIndices.length} bits.`,
+          );
+        }
+
+        // Map each bit from the output to its position in the input
+        const valStr = val.toString();
+        for (let j = 0; j < bitIndices.length; j++) {
+          const bitIndex = bitIndices[j];
+          const bitValue = valStr[j];
+
+          if (inputBits[bitIndex] !== null && inputBits[bitIndex] !== bitValue) {
+            throw new Error(
+              `SplitterElement conflict: Bit ${bitIndex} is being set to both '${inputBits[bitIndex]}' and '${bitValue}'.`,
+            );
+          }
+
+          inputBits[bitIndex] = bitValue;
+        }
       }
 
-      newOut += val?.toString() ?? BitString.low(output.getWidth());
-    }
+      // Build the final input string (high to low bit order)
+      let newOut = "";
+      for (let i = inputWidth - 1; i >= 0; i--) {
+        newOut += inputBits[i] ?? "0";
+      }
 
-    this.log(LogLevel.TRACE, `Propagating '${newOut}' to input.`);
-    this.getInputs()[0].setValue(new BitString(newOut));
+      this.log(LogLevel.TRACE, `Propagating '${newOut}' to input.`);
+      this.getInputs()[0].setValue(new BitString(newOut));
+    } else {
+      // Sequential contiguous combination mode (original behavior)
+      let newOut = "";
+
+      for (let s in this.#split) {
+        let i = this.#split.length - 1 - parseInt(s);
+        const split = this.#split[i];
+        const output = super.getOutputs().slice(1)[i];
+        const val = output.getValue();
+
+        if (output.getWidth() != split) {
+          throw new Error(
+            `SplitterElement bus width error: Received ${output.getWidth()}-bit value on ${split}-bit bus.`,
+          );
+        }
+
+        newOut += val?.toString() ?? BitString.low(output.getWidth());
+      }
+
+      this.log(LogLevel.TRACE, `Propagating '${newOut}' to input.`);
+      this.getInputs()[0].setValue(new BitString(newOut));
+    }
 
     this.#lastOp = "propIn";
   }
@@ -167,11 +285,14 @@ export class Splitter extends CircuitElement {
    * elements in this array is the number of buses that the input bus will be
    * split into (and should thus match the length of `outputs`) and the values
    * are the number of bits wide each split is. The sum of these should equal
-   * the width of the `input` bus.
+   * the width of the `input` bus (unless bitMappings is provided for non-contiguous splits).
    * @param input The input bus to split into the outputs.
-   * @param outputs The output bus to combine into the inputs.s
+   * @param outputs The output bus to combine into the inputs.
+   * @param bitMappings Optional array of bit index arrays. If provided, enables non-contiguous
+   * bit extraction where each output can extract arbitrary bits from the input. Each inner
+   * array contains the bit indices (from high to low) for that output.
    */
-  constructor(split: number[], input: CircuitBus, outputs: CircuitBus[]) {
+  constructor(split: number[], input: CircuitBus, outputs: CircuitBus[], bitMappings?: number[][]) {
     // This is a bi-directional element, so it's behavior depends on whether
     // the input changed (split input into outputs) or an output changed (combine
     // outputs into input.)
@@ -187,11 +308,18 @@ export class Splitter extends CircuitElement {
       );
     }
 
+    if (bitMappings && bitMappings.length !== split.length) {
+      throw new Error(
+        `Splitter: bitMappings array must be the same length as split array: ${bitMappings.length} != ${split.length}`,
+      );
+    }
+
     // Note: The sum of split widths can exceed input.getWidth() when bits are duplicated
-    // across multiple outputs. We only check that split array length matches outputs length.
-    // Individual bit extraction bounds are checked during resolve().
+    // across multiple outputs (when using bitMappings). We only check that split array
+    // length matches outputs length. Individual bit extraction bounds are checked during resolve().
 
     this.#split = split;
+    this.#bitMappings = bitMappings;
     this.#prevInput = null;
     this.#prevOutputs = null;
     this.#lastOp = null;
@@ -255,7 +383,7 @@ export class Splitter extends CircuitElement {
         } else if (outputsChanged && outputUpdate < inputUpdate) {
           this.#propIn();
         } else {
-          if (inputUpdate == outputUpdate && !input.equals(outputs.join(""))) {
+          if (inputUpdate == outputUpdate && !this.#areConsistent(input, outputs)) {
             throw new Error(
               `Splitter contention: Both inputs and outputs were set and have changed at the same time: ${input} != ${this.#prevInput} && ${JSON.stringify(outputs)} != ${JSON.stringify(this.#prevOutputs)}`,
             );
