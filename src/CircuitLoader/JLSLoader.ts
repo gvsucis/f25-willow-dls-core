@@ -92,11 +92,14 @@ function genSplit(data: {
       }
       pairMap[output].push(bit);
     }
-    return Object.values(pairMap).map((a) => a.length);
+    // Sort by port index to ensure correct order
+    return Object.keys(pairMap)
+      .sort((a, b) => parseInt(a) - parseInt(b))
+      .map(key => pairMap[parseInt(key)].length);
   }
 }
 
-// Helper function to get wire width for a splitter output in new format
+// Helper function to get wire width for a splitter output
 // Returns the width of the output at the given index
 function getSplitterOutputWidth(data: {
   type: string;
@@ -118,8 +121,57 @@ function getSplitterOutputWidth(data: {
     return end - start + 1;
   }
 
-  // For old format or invalid index, return 1 as fallback
+  // Old format: count how many pairs have this output index
+  const pairMap: Record<number, number[]> = {};
+  for (const [output, bit] of parsedPairs) {
+    if (!pairMap[output]) {
+      pairMap[output] = [];
+    }
+    pairMap[output].push(bit);
+  }
+
+  if (pairMap[outputIndex]) {
+    return pairMap[outputIndex].length;
+  }
+
+  // Fallback if output index not found
   return 1;
+}
+
+// Helper function to generate bit mappings for old format splitters
+// Returns undefined for new format, or an array of bit index arrays for old format
+function genBitMappings(data: {
+  type: string;
+  props: Record<string, string[]>;
+}): number[][] | undefined {
+  const pairs = data.props["pair"];
+  const parsedPairs = pairs.map((s) => s.split(":").map((n) => parseInt(n)));
+
+  // Check if new format
+  const firstNumbers = parsedPairs.map(p => p[0]);
+  const hasDuplicates = firstNumbers.length !== new Set(firstNumbers).size;
+  const isNewFormat = parsedPairs.length > 1 &&
+    parsedPairs.every(([start, end]) => end - start >= 0 && end - start <= 15) &&
+    !hasDuplicates;
+
+  if (isNewFormat) {
+    // New format doesn't use bit mappings
+    return undefined;
+  }
+
+  // Old format: build bit mapping arrays
+  const pairMap: Record<number, number[]> = {};
+  for (const [output, bit] of parsedPairs) {
+    if (!pairMap[output]) {
+      pairMap[output] = [];
+    }
+    pairMap[output].push(bit);
+  }
+
+  // Convert to array of arrays (one for each output)
+  return Object.keys(pairMap)
+    .sort((a, b) => parseInt(a) - parseInt(b))
+    .map(key => pairMap[parseInt(key)]);
 }
 
 const createElement: Record<
@@ -186,9 +238,9 @@ const createElement: Record<
   // Splitter and Binder are two separate elements in JLS, but are implemented
   // in a single element for CircuitVerse.
   Splitter: (data, inputs, outputs) =>
-    new Splitter(genSplit(data), inputs[0], outputs),
+    new Splitter(genSplit(data), inputs[0], outputs, genBitMappings(data)),
   Binder: (data, inputs, outputs) =>
-    new Splitter(genSplit(data), outputs[0], inputs),
+    new Splitter(genSplit(data), outputs[0], inputs, genBitMappings(data)),
 
   Memory: (data, inputs, outputs, loader) => {
     if (data.props["file"][0] != "") {
@@ -442,19 +494,26 @@ export class JLSLoader extends CircuitLoader {
             if (["input", "output"].includes(put)) {
               wireWidth = parseInt(parsedElement.props["bits"][0]);
             } else {
-              // Check if put is a numeric index (new format) or a range (old format)
+              // Check if this is old or new format splitter
+              const bitMappings = genBitMappings(parsedElement);
               const parsedPut = put.split("-");
+
               if (parsedPut.length > 1) {
-                // Old format: "11-8" means bits 11 down to 8
+                // Range notation like "11-8" means bits 11 down to 8
                 wireWidth = parseInt(parsedPut[0]) - parseInt(parsedPut[1]) + 1;
               } else if (/^[0-9]+$/.test(put)) {
-                // New format: numeric index, look up width from pairs
-                const outputIndex = parseInt(put);
-                wireWidth = getSplitterOutputWidth(parsedElement, outputIndex);
-                this.log(
-                  LogLevel.TRACE,
-                  `New format splitter: outputIndex=${outputIndex}, wireWidth=${wireWidth}, pairs=${JSON.stringify(parsedElement.props["pair"])}`,
-                );
+                if (bitMappings) {
+                  // Old format: numeric label represents a single bit
+                  wireWidth = 1;
+                } else {
+                  // New format: numeric index, look up width from pairs
+                  const outputIndex = parseInt(put);
+                  wireWidth = getSplitterOutputWidth(parsedElement, outputIndex);
+                  this.log(
+                    LogLevel.TRACE,
+                    `New format splitter: outputIndex=${outputIndex}, wireWidth=${wireWidth}, pairs=${JSON.stringify(parsedElement.props["pair"])}`,
+                  );
+                }
               } else {
                 // Fallback for other cases (named wires)
                 wireWidth = 1;
@@ -567,10 +626,10 @@ export class JLSLoader extends CircuitLoader {
       const [s, e] = label.split("-").map((i) => parseInt(i));
       let newWidth: number;
       if (e != undefined) {
-        // Old format: range notation like "11-8"
+        // Range notation like "11-8"
         newWidth = s - e + 1;
       } else {
-        // New format: numeric index, need to find the splitter element
+        // Numeric label: need to determine if old or new format
         const attachedElementId = w.props["attach"][0];
         const splitterElement = noWires.find(
           (el) =>
@@ -578,12 +637,19 @@ export class JLSLoader extends CircuitLoader {
             (el.type === "Splitter" || el.type === "Binder"),
         );
         if (splitterElement) {
-          const outputIndex = parseInt(label);
-          newWidth = getSplitterOutputWidth(splitterElement, outputIndex);
-          this.log(
-            LogLevel.TRACE,
-            `New format splitter/binder wire: element=${attachedElementId}, outputIndex=${outputIndex}, pairs=${JSON.stringify(splitterElement.props["pair"])}`,
-          );
+          const bitMappings = genBitMappings(splitterElement);
+          if (bitMappings) {
+            // Old format: numeric label represents a single bit
+            newWidth = 1;
+          } else {
+            // New format: numeric index, look up width from pairs
+            const outputIndex = parseInt(label);
+            newWidth = getSplitterOutputWidth(splitterElement, outputIndex);
+            this.log(
+              LogLevel.TRACE,
+              `New format splitter/binder wire: element=${attachedElementId}, outputIndex=${outputIndex}, pairs=${JSON.stringify(splitterElement.props["pair"])}`,
+            );
+          }
         } else {
           // Fallback to 1 if we can't find the splitter
           newWidth = 1;
@@ -613,52 +679,13 @@ export class JLSLoader extends CircuitLoader {
       }
     });
 
-    // Final pass: Ensure all connected wires have consistent widths by propagating
-    // the maximum width through each connected group. This fixes cases where wires
-    // are connected across subcircuits with incompatible widths.
-    const visitedGlobal = new Set<string>();
-    const propagateMaxWidth = (bus: CircuitBus, visited: Set<string>, maxWidth: number): number => {
-      const busId = bus.getId();
-      if (visited.has(busId)) {
-        return maxWidth;
-      }
-      visited.add(busId);
-
-      // Track the maximum width in this connected group
-      maxWidth = Math.max(maxWidth, bus.getWidth());
-
-      // Recursively check all connected buses
-      for (const connected of bus.getConnections()) {
-        maxWidth = propagateMaxWidth(connected, visited, maxWidth);
-      }
-
-      return maxWidth;
-    };
-
-    // For each wire, find the maximum width in its connected group and apply it
-    for (const wire of Object.values(wires)) {
-      if (visitedGlobal.has(wire.getId())) {
-        continue; // Skip wires we've already processed as part of another connected group
-      }
-
-      const visited = new Set<string>();
-      const maxWidth = propagateMaxWidth(wire, visited, 0);
-
-      // Mark all wires in this group as visited globally
-      visited.forEach(id => visitedGlobal.add(id));
-
-      // Apply the max width to all wires in this connected group
-      visited.forEach(id => {
-        const connectedWire = Object.values(wires).find(w => w.getId() === id);
-        if (connectedWire && maxWidth > connectedWire.getWidth()) {
-          this.log(
-            LogLevel.TRACE,
-            `Propagating max width to connected group: [id = ${connectedWire.getId()}]: ${connectedWire.getWidth()} => ${maxWidth}`,
-          );
-          connectedWire.setWidth(maxWidth);
-        }
-      });
-    }
+    // NOTE: Width propagation pass is disabled for now because it incorrectly
+    // propagates widths through Splitter elements, treating all splitter wires
+    // as one connected group when they should have independent widths.
+    // This was causing all splitter output wires to get set to the input width.
+    //
+    // TODO: If we need width propagation for subcircuits, we should implement
+    // it in a way that respects Splitter boundaries.
 
     // All wires are connected, now create the elements and attach them to their
     // buses.
@@ -765,17 +792,86 @@ export class JLSLoader extends CircuitLoader {
         const inputIds = inputWires.map((i) => i.props["id"][0]);
         const inputs = inputIds.map((i) => wires[i]);
 
-        const outputWires = parsedOutputWires.sort((a, b) =>
-          a.props["put"][0].localeCompare(b.props["put"][0]),
-        );
+        // For splitters/binders, determine output order by matching wire labels to port indices
+        const outputWires = (() => {
+          // Check if this is a splitter/binder
+          if (parsedElement.type !== "Splitter" && parsedElement.type !== "Binder") {
+            return parsedOutputWires.sort((a, b) =>
+              a.props["put"][0].localeCompare(b.props["put"][0]),
+            );
+          }
+
+          // Get bit mappings to understand what each port extracts
+          const bitMappings = genBitMappings(parsedElement);
+          if (!bitMappings) {
+            // New format: numeric labels map directly to port indices
+            return parsedOutputWires.sort((a, b) => {
+              const numA = parseInt(a.props["put"][0]);
+              const numB = parseInt(b.props["put"][0]);
+              return numA - numB;
+            });
+          }
+
+          // Old format: map each wire label to its port index
+          const labelToPortIndex: Record<string, number> = {};
+
+          parsedOutputWires.forEach(w => {
+            const label = w.props["put"][0];
+
+            if (/^\d+$/.test(label)) {
+              // Numeric label: represents a single bit, find port that extracts only that bit
+              const bitIndex = parseInt(label);
+              for (let portIdx = 0; portIdx < bitMappings.length; portIdx++) {
+                const portBits = bitMappings[portIdx];
+                if (portBits.length === 1 && portBits[0] === bitIndex) {
+                  labelToPortIndex[label] = portIdx;
+                  break;
+                }
+              }
+            } else if (/-/.test(label)) {
+              // Range label "X-Y": find port that extracts bits [Y..X]
+              const [high, low] = label.split("-").map(n => parseInt(n));
+              const expectedBits: number[] = [];
+              for (let bit = low; bit <= high; bit++) {
+                expectedBits.push(bit);
+              }
+
+              // Find matching port by comparing bit arrays
+              for (let portIdx = 0; portIdx < bitMappings.length; portIdx++) {
+                const portBits = bitMappings[portIdx].slice().sort((a, b) => a - b);
+                if (portBits.length === expectedBits.length &&
+                    portBits.every((bit, idx) => bit === expectedBits[idx])) {
+                  labelToPortIndex[label] = portIdx;
+                  break;
+                }
+              }
+            }
+          });
+
+          // Sort wires by their port index
+          return parsedOutputWires.sort((a, b) => {
+            const labelA = a.props["put"][0];
+            const labelB = b.props["put"][0];
+            const indexA = labelToPortIndex[labelA] ?? 999;
+            const indexB = labelToPortIndex[labelB] ?? 999;
+            return indexA - indexB;
+          });
+        })();
         const outputIds = outputWires.map((i) => i.props["id"][0]);
-        const outputs = outputIds.map((i) => wires[i]);
+        let outputs = outputIds.map((i) => wires[i]);
+
+        // IMPORTANT: The Splitter element accesses outputs in reverse order (see Splitter.ts line 138).
+        // We must reverse the outputs array so that outputs[0] maps to bitMappings[length-1].
+        if ((parsedElement.type === "Splitter" || parsedElement.type === "Binder") && genBitMappings(parsedElement)) {
+          outputs = outputs.reverse();
+        }
 
         if (!createElement[parsedElement.type]) {
           throw new Error(`Unsupported element of type: ${parsedElement.type}`);
         }
 
         this.log(LogLevel.TRACE, `Creating element: ${parsedElement.type}`);
+
         const element = createElement[parsedElement.type](
           parsedElement,
           inputs,
