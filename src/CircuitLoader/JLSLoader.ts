@@ -244,19 +244,7 @@ const createElement: Record<
     // (see Splitter.ts #propOut method). So we need to reverse split, bitMappings, and outputs
     // to match the iteration order.
     if (bitMappings) {
-      console.log("Creating Splitter with reversed arrays:");
-      console.log(`  Input: ${inputs[0].getId()}(${inputs[0].getWidth()})`);
-      console.log(`  Original outputs: ${outputs.map(o => `${o.getId()}(${o.getWidth()})`).join(", ")}`);
-      const reversedOutputs = outputs.slice().reverse();
-      console.log(`  Reversed outputs: ${reversedOutputs.map(o => `${o.getId()}(${o.getWidth()})`).join(", ")}`);
-
-      // Check if input is somehow in the outputs array
-      const inputInOutputs = reversedOutputs.some(o => o.getId() === inputs[0].getId());
-      if (inputInOutputs) {
-        console.log(`  WARNING: Input bus ${inputs[0].getId()} is in outputs array!`);
-      }
-
-      return new Splitter(split.slice().reverse(), inputs[0], reversedOutputs, bitMappings.slice().reverse());
+      return new Splitter(split.slice().reverse(), inputs[0], outputs.slice().reverse(), bitMappings.slice().reverse());
     }
     return new Splitter(split, inputs[0], outputs, bitMappings);
   },
@@ -702,17 +690,67 @@ export class JLSLoader extends CircuitLoader {
     // TODO: If we need width propagation for subcircuits, we should implement
     // it in a way that respects Splitter boundaries.
 
+    // Build a list of wires that are attached to Splitter/Binder elements
+    // These wires should NOT be connected to each other if they have different "put" labels,
+    // because the Splitter/Binder element itself mediates the connection between different bit widths
+    const splitterWireIds = new Set<string>();
+    const splitterWireLabels = new Map<string, string>(); // wireId -> put label
+    const splitterWireElements = new Map<string, string>(); // wireId -> element id
+
+    for (const element of noWires.filter(e => e.type === "Splitter" || e.type === "Binder")) {
+      const elementId = element.props["id"][0];
+      const connectedWires = parsedWires.filter(w => (w.props["attach"] ?? []).includes(elementId));
+
+      for (const wire of connectedWires) {
+        const wireId = wire.props["id"][0];
+        splitterWireIds.add(wireId);
+        splitterWireLabels.set(wireId, wire.props["put"]?.[0] ?? "");
+        splitterWireElements.set(wireId, elementId);
+      }
+    }
+
     // Now that widths are finalized, connect the wires together
+    // Skip connections between wires that belong to different pins of the same Splitter/Binder
     for (const parsedWire of parsedWires) {
       const id = parsedWire.props["id"][0];
       const attach = parsedWire.props["wire"];
 
       attach.forEach((attachedWire) => {
-        wires[id].connect(wires[attachedWire]);
-        this.log(
-          LogLevel.TRACE,
-          `Connecting wire: [id = ${wires[id].getId()}, width = ${wires[id].getWidth()}, JLS = ${id}] => [id = ${wires[attachedWire].getId()}, width = ${wires[attachedWire].getWidth()}, JLS = ${attachedWire}]`,
-        );
+        // Check if both wires are connected to the same Splitter/Binder element
+        const isSplitterWire1 = splitterWireIds.has(id);
+        const isSplitterWire2 = splitterWireIds.has(attachedWire);
+
+        if (isSplitterWire1 && isSplitterWire2) {
+          const element1 = splitterWireElements.get(id);
+          const element2 = splitterWireElements.get(attachedWire);
+          const label1 = splitterWireLabels.get(id);
+          const label2 = splitterWireLabels.get(attachedWire);
+
+          // If both wires are connected to the SAME Splitter/Binder but have DIFFERENT labels,
+          // do not connect them - the Splitter/Binder will handle the connection
+          if (element1 === element2 && label1 !== label2) {
+            this.log(
+              LogLevel.TRACE,
+              `Skipping connection between splitter wires with different pins: [JLS = ${id}, label = "${label1}"] => [JLS = ${attachedWire}, label = "${label2}"]`,
+            );
+            return;
+          }
+        }
+
+        // Only connect wires if they have the same width
+        // Wires with different widths should not be directly connected; elements mediate the connection
+        if (wires[id].getWidth() === wires[attachedWire].getWidth()) {
+          wires[id].connect(wires[attachedWire]);
+          this.log(
+            LogLevel.TRACE,
+            `Connecting wire: [id = ${wires[id].getId()}, width = ${wires[id].getWidth()}, JLS = ${id}] => [id = ${wires[attachedWire].getId()}, width = ${wires[attachedWire].getWidth()}, JLS = ${attachedWire}]`,
+          );
+        } else {
+          this.log(
+            LogLevel.TRACE,
+            `Skipping connection due to width mismatch: [id = ${wires[id].getId()}, width = ${wires[id].getWidth()}, JLS = ${id}] => [id = ${wires[attachedWire].getId()}, width = ${wires[attachedWire].getWidth()}, JLS = ${attachedWire}]`,
+          );
+        }
       });
     }
 
@@ -894,28 +932,6 @@ export class JLSLoader extends CircuitLoader {
         }
 
         this.log(LogLevel.TRACE, `Creating element: ${parsedElement.type}`);
-
-        // Debug logging for splitters
-        if (parsedElement.type === "Splitter" || parsedElement.type === "Binder") {
-          const bitMappings = genBitMappings(parsedElement);
-          const split = genSplit(parsedElement);
-          console.log(`\n=== ${parsedElement.type} Debug ===`);
-          console.log(`Split widths: [${split.join(", ")}]`);
-          if (bitMappings) {
-            console.log(`Bit mappings (${bitMappings.length} ports):`);
-            bitMappings.forEach((mapping, idx) => {
-              console.log(`  [${idx}] bits [${mapping.join(",")}], width=${mapping.length}`);
-            });
-          }
-          console.log(`Output wires (${outputWires.length} wires):`);
-          outputWires.forEach((w, idx) => {
-            const wireId = w.props["id"][0];
-            const label = w.props["put"][0];
-            const width = wires[wireId].getWidth();
-            console.log(`  [${idx}] wire ${wireId}, label="${label}", width=${width}`);
-          });
-          console.log(`=== End ${parsedElement.type} Debug ===\n`);
-        }
 
         const element = createElement[parsedElement.type](
           parsedElement,
