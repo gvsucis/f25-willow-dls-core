@@ -470,11 +470,8 @@ export class JLSLoader extends CircuitLoader {
 
       for (const connectedWire of connectedWires) {
         if (wires[connectedWire.props["id"][0]]) {
-          if (wires[connectedWire.props["id"][0]].getWidth() != width) {
-            wires[connectedWire.props["id"][0]].setWidth(
-              Math.max(width, wires[connectedWire.props["id"][0]].getWidth()),
-            );
-          }
+          // Skip wires that were already created by another element.
+          // Each wire keeps the width from the first element that created it.
           continue;
         }
 
