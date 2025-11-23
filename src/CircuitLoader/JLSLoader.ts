@@ -237,10 +237,38 @@ const createElement: Record<
 
   // Splitter and Binder are two separate elements in JLS, but are implemented
   // in a single element for CircuitVerse.
-  Splitter: (data, inputs, outputs) =>
-    new Splitter(genSplit(data), inputs[0], outputs, genBitMappings(data)),
-  Binder: (data, inputs, outputs) =>
-    new Splitter(genSplit(data), outputs[0], inputs, genBitMappings(data)),
+  Splitter: (data, inputs, outputs) => {
+    const split = genSplit(data);
+    const bitMappings = genBitMappings(data);
+    // For old-format splitters, the Splitter element iterates through indices in reverse
+    // (see Splitter.ts #propOut method). So we need to reverse split, bitMappings, and outputs
+    // to match the iteration order.
+    if (bitMappings) {
+      console.log("Creating Splitter with reversed arrays:");
+      console.log(`  Input: ${inputs[0].getId()}(${inputs[0].getWidth()})`);
+      console.log(`  Original outputs: ${outputs.map(o => `${o.getId()}(${o.getWidth()})`).join(", ")}`);
+      const reversedOutputs = outputs.slice().reverse();
+      console.log(`  Reversed outputs: ${reversedOutputs.map(o => `${o.getId()}(${o.getWidth()})`).join(", ")}`);
+
+      // Check if input is somehow in the outputs array
+      const inputInOutputs = reversedOutputs.some(o => o.getId() === inputs[0].getId());
+      if (inputInOutputs) {
+        console.log(`  WARNING: Input bus ${inputs[0].getId()} is in outputs array!`);
+      }
+
+      return new Splitter(split.slice().reverse(), inputs[0], reversedOutputs, bitMappings.slice().reverse());
+    }
+    return new Splitter(split, inputs[0], outputs, bitMappings);
+  },
+  Binder: (data, inputs, outputs) => {
+    const split = genSplit(data);
+    const bitMappings = genBitMappings(data);
+    // For old-format binders, reverse the arrays to match Splitter's iteration order
+    if (bitMappings) {
+      return new Splitter(split.slice().reverse(), outputs[0], inputs.slice().reverse(), bitMappings.slice().reverse());
+    }
+    return new Splitter(split, outputs[0], inputs, bitMappings);
+  },
 
   Memory: (data, inputs, outputs, loader) => {
     if (data.props["file"][0] != "") {
@@ -572,20 +600,7 @@ export class JLSLoader extends CircuitLoader {
       }
     }
 
-    // Now that we have all the wires, connect them together.
-    for (const parsedWire of parsedWires) {
-      const id = parsedWire.props["id"][0];
-      const attach = parsedWire.props["wire"];
-
-      attach.forEach((attachedWire) => {
-        wires[id].connect(wires[attachedWire]);
-        this.log(
-          LogLevel.TRACE,
-          `Connecting wire: [id = ${wires[id].getId()}, width = ${wires[id].getWidth()}, JLS = ${id}] => [id = ${wires[attachedWire].getId()}, width = ${wires[attachedWire].getWidth()}, JLS = ${attachedWire}]`,
-        );
-      });
-    }
-
+    // Apply width overrides BEFORE connecting wires to prevent propagation issues
     const overrideWidths: Record<string, number> = {
       C: 1,
       WE: 1,
@@ -687,7 +702,21 @@ export class JLSLoader extends CircuitLoader {
     // TODO: If we need width propagation for subcircuits, we should implement
     // it in a way that respects Splitter boundaries.
 
-    // All wires are connected, now create the elements and attach them to their
+    // Now that widths are finalized, connect the wires together
+    for (const parsedWire of parsedWires) {
+      const id = parsedWire.props["id"][0];
+      const attach = parsedWire.props["wire"];
+
+      attach.forEach((attachedWire) => {
+        wires[id].connect(wires[attachedWire]);
+        this.log(
+          LogLevel.TRACE,
+          `Connecting wire: [id = ${wires[id].getId()}, width = ${wires[id].getWidth()}, JLS = ${id}] => [id = ${wires[attachedWire].getId()}, width = ${wires[attachedWire].getWidth()}, JLS = ${attachedWire}]`,
+        );
+      });
+    }
+
+    // All wires are created and connected, now create the elements and attach them to their
     // buses.
     const elements: CircuitElement[] = [];
     for (const parsedElement of noWires) {
@@ -858,19 +887,35 @@ export class JLSLoader extends CircuitLoader {
           });
         })();
         const outputIds = outputWires.map((i) => i.props["id"][0]);
-        let outputs = outputIds.map((i) => wires[i]);
-
-        // IMPORTANT: The Splitter element accesses outputs in reverse order (see Splitter.ts line 138).
-        // We must reverse the outputs array so that outputs[0] maps to bitMappings[length-1].
-        if ((parsedElement.type === "Splitter" || parsedElement.type === "Binder") && genBitMappings(parsedElement)) {
-          outputs = outputs.reverse();
-        }
+        const outputs = outputIds.map((i) => wires[i]);
 
         if (!createElement[parsedElement.type]) {
           throw new Error(`Unsupported element of type: ${parsedElement.type}`);
         }
 
         this.log(LogLevel.TRACE, `Creating element: ${parsedElement.type}`);
+
+        // Debug logging for splitters
+        if (parsedElement.type === "Splitter" || parsedElement.type === "Binder") {
+          const bitMappings = genBitMappings(parsedElement);
+          const split = genSplit(parsedElement);
+          console.log(`\n=== ${parsedElement.type} Debug ===`);
+          console.log(`Split widths: [${split.join(", ")}]`);
+          if (bitMappings) {
+            console.log(`Bit mappings (${bitMappings.length} ports):`);
+            bitMappings.forEach((mapping, idx) => {
+              console.log(`  [${idx}] bits [${mapping.join(",")}], width=${mapping.length}`);
+            });
+          }
+          console.log(`Output wires (${outputWires.length} wires):`);
+          outputWires.forEach((w, idx) => {
+            const wireId = w.props["id"][0];
+            const label = w.props["put"][0];
+            const width = wires[wireId].getWidth();
+            console.log(`  [${idx}] wire ${wireId}, label="${label}", width=${width}`);
+          });
+          console.log(`=== End ${parsedElement.type} Debug ===\n`);
+        }
 
         const element = createElement[parsedElement.type](
           parsedElement,
