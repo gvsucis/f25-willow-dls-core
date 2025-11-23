@@ -95,6 +95,7 @@ export class Splitter extends CircuitElement {
     if (this.#bitMappings) {
       // With bit mappings, we need to check if extracting the bits from input
       // matches what's in the outputs
+      const inputWidth = input.getWidth();
       for (let s = 0; s < this.#split.length; s++) {
         let i = this.#split.length - 1 - s;
         const bitIndices = this.#bitMappings[i];
@@ -103,9 +104,13 @@ export class Splitter extends CircuitElement {
         if (!output) return false;
 
         // Extract the expected bits from input
+        // bitIndices contain logical bit positions (0 = LSB, 7 = MSB)
+        // but BitString.substring uses string indices (0 = MSB, 7 = LSB)
+        // so we need to convert: stringIndex = inputWidth - 1 - bitIndex
         let expectedValue = "";
         for (const bitIndex of bitIndices) {
-          expectedValue += input.substring(bitIndex, bitIndex + 1).toString();
+          const stringIndex = inputWidth - 1 - bitIndex;
+          expectedValue += input.substring(stringIndex, stringIndex + 1).toString();
         }
 
         if (expectedValue !== output.toString()) {
@@ -120,10 +125,11 @@ export class Splitter extends CircuitElement {
   }
 
   #propOut(input: BitString) {
-    this.log(LogLevel.TRACE, "Splitting input into outputs...");
+    this.log(LogLevel.TRACE, `Splitting input ${input} into outputs...`);
 
     if (this.#bitMappings) {
       // Non-contiguous bit extraction mode: use bit mappings
+      const inputWidth = input.getWidth();
       for (const s in this.#split) {
         // IMPORTANT: CircuitVerse (and therefore this loader/constructor) stores
         // splitter output indices in a reversed order compared to the natural
@@ -143,9 +149,13 @@ export class Splitter extends CircuitElement {
         this.log(LogLevel.TRACE, `Extracting bits ${bitIndices.join(',')} from ${input}...`);
 
         // Extract the specified bits and concatenate them
+        // bitIndices contain logical bit positions (0 = LSB, 7 = MSB)
+        // but BitString.substring uses string indices (0 = MSB, 7 = LSB)
+        // so we need to convert: stringIndex = inputWidth - 1 - bitIndex
         let value = "";
         for (const bitIndex of bitIndices) {
-          value += input.substring(bitIndex, bitIndex + 1).toString();
+          const stringIndex = inputWidth - 1 - bitIndex;
+          value += input.substring(stringIndex, stringIndex + 1).toString();
         }
 
         const bitString = new BitString(value);
@@ -183,7 +193,8 @@ export class Splitter extends CircuitElement {
   }
 
   #propIn() {
-    this.log(LogLevel.TRACE, "Combining outputs into input...");
+    const outputs = super.getOutputs().slice(1).map((o) => o.getValue());
+    this.log(LogLevel.TRACE, `Combining outputs ${outputs} into input...`);
 
     if (this.#bitMappings) {
       // Non-contiguous bit combination mode: use bit mappings
@@ -201,7 +212,7 @@ export class Splitter extends CircuitElement {
 
       // Place each output's bits into the input array
       for (let s in this.#split) {
-        let i = this.#split.length - 1 - parseInt(s);
+        let i = this.#split.length - 1 - parseInt(s); // Same reversal as propOut
         const bitIndices: number[] = this.#bitMappings[i];
         const output = super.getOutputs().slice(1)[i];
         const val = output.getValue();
@@ -340,6 +351,7 @@ export class Splitter extends CircuitElement {
       if (!this.#nullOutputs(outputs)) {
         this.log(LogLevel.TRACE, `No input, but all outputs are present.`);
         this.#propIn();
+        [this.#prevInput, this.#prevOutputs] = this.#getValues();
       } else {
         this.log(
           LogLevel.TRACE,
@@ -354,18 +366,27 @@ export class Splitter extends CircuitElement {
           `Input provided, and some outputs are missing.`,
         );
         this.#propOut(input);
+        [this.#prevInput, this.#prevOutputs] = this.#getValues();
       } else {
         this.log(
           LogLevel.TRACE,
           `Both input and all outputs are present, seeing what changed...`,
         );
 
+        // First check if input and outputs are already consistent
+        // If they are, we don't need to propagate anything
+        if (this.#areConsistent(input, outputs)) {
+          this.log(LogLevel.TRACE, `Input and outputs are consistent, NOT propagating.`);
+          [this.#prevInput, this.#prevOutputs] = this.#getValues();
+          return this.getPropagationDelay();
+        }
+
         const inputUpdate = this.getInputs()[0].getLastUpdate();
         const outputUpdate = this.#earliestOutput();
 
-        const inputChanged = !input.equals(this.#prevInput);
-        const outputsChanged = !this.#bitStringsEqual(
-          this.#prevOutputs ?? [],
+        const inputChanged = this.#prevInput === null || !input.equals(this.#prevInput);
+        const outputsChanged = this.#prevOutputs === null || !this.#bitStringsEqual(
+          this.#prevOutputs,
           outputs,
         );
 
@@ -383,23 +404,21 @@ export class Splitter extends CircuitElement {
         } else if (outputsChanged && outputUpdate < inputUpdate) {
           this.#propIn();
         } else {
-          if (inputUpdate == outputUpdate && !this.#areConsistent(input, outputs)) {
+          if (inputUpdate == outputUpdate) {
             throw new Error(
-              `Splitter contention: Both inputs and outputs were set and have changed at the same time: ${input} != ${this.#prevInput} && ${JSON.stringify(outputs)} != ${JSON.stringify(this.#prevOutputs)}`,
+              `Splitter contention: Both inputs and outputs were set and have changed at the same time but are inconsistent: ${input} vs ${JSON.stringify(outputs)}`,
             );
           } else {
             if (inputUpdate > outputUpdate) {
               this.#propOut(input);
             } else if (outputUpdate > inputUpdate) {
               this.#propIn();
-            } else {
-              // Do nothing.
-              // Neither the input nor the output changed, or they changed at the
-              // same time and are consistent.
             }
           }
         }
 
+        // Always update prev values after this path, to ensure subsequent calls
+        // don't incorrectly think values changed
         [this.#prevInput, this.#prevOutputs] = this.#getValues();
       }
     }
@@ -408,7 +427,11 @@ export class Splitter extends CircuitElement {
   }
 
   reset() {
-    super.reset();
+    // Manually clear all buses because the Splitter uses both inputs and outputs
+    // as bidirectional buses, and the parent reset() only clears based on getOutputs()
+    // which returns different buses depending on #lastOp
+    this.getInputs().forEach((i) => i.setValue(null, -1));
+    super.getOutputs().forEach((o) => o.setValue(null, -1));
 
     this.#prevInput = null;
     this.#prevOutputs = null;
