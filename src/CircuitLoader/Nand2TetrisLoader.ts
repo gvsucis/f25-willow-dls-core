@@ -181,15 +181,15 @@ const createElement: Record<string, ElementMaker> = {
         ),
     DMux4Way: (i, o) => new DMux4Way(
             i[0], // in
-            i[1], // sel
             o[0], // a
             o[1], // b
             o[2], // c
             o[3], // d
+            i[1], // sel
+
     ),
-  DMux8Way: (i, o) => new DMux8Way(
+    DMux8Way: (i, o) => new DMux8Way(
         i[0], // in
-        i[1], // sel
         o[0], // a
         o[1], // b
         o[2], // c
@@ -198,6 +198,7 @@ const createElement: Record<string, ElementMaker> = {
         o[5], // f
         o[6], // g
         o[7], // h
+        i[1], // sel
     ),
     FullAdder: (i, o) => new FullAdder(
         i[0], 
@@ -220,16 +221,16 @@ const createElement: Record<string, ElementMaker> = {
     Mux16: (i, o) => new Mux16(
         i[0], // a
         i[1], // b
-        i[2], // sel
         o[0], // out
+        i[2], // sel
     ),
     Mux4Way16: (i, o) => new Mux4Way16(
         i[0], // a
         i[1], // b
         i[2], // c
         i[3], // d
-        i[4], // sel
         o[0], // out
+        i[4], // sel
     ),
     Mux8Way16: (i, o) => new Mux8Way16(
         i[0], // a
@@ -240,8 +241,8 @@ const createElement: Record<string, ElementMaker> = {
         i[5], // f
         i[6], // g
         i[7], // h
-        i[8], // sel
         o[0], // out
+        i[8], // sel
     ),
   
     // DRegister: () => new DRegister(), //not yet supported by Willow
@@ -518,8 +519,8 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
                 );
             }
             elements.push(maker(ins, outs))
-            this.attachSliceElements(busses, elements);
-            this.attachMergeElements(busses, elements);
+            // this.attachSliceElements(busses, elements);
+            // this.attachMergeElements(busses, elements);
 
             //DEBUG
             for (const outDecl of hdl.outputs) {
@@ -571,8 +572,8 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
             LogLevel.WARN,
             `HDL chip '${hdl.name}' has no BUILTIN and no PARTS; creating IO-only shell.`,
         );
-        this.attachSliceElements(busses, elements);
-        this.attachMergeElements(busses, elements);
+        // this.attachSliceElements(busses, elements);
+        // this.attachMergeElements(busses, elements);
 
         // DEBUG: show what drives each top-level output
         for (const outDecl of hdl.outputs) {
@@ -753,7 +754,7 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
         } catch {} //throw if missing, but thats ok, do nothign
 
         //2) No resolvver = Cannot load HDL
-        if (!this.loadingStack.has(chipName)){
+        if (this.loadingStack.has(chipName)){
             this.log(
                 LogLevel.ERROR,
                 `Cyclic subcircuit dependency involving '${chipName}'.`,
@@ -1066,10 +1067,7 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
             const range = busses[spec.rangeName];
 
             if (!base || !range) {
-                this.log(
-                    LogLevel.WARN,
-                    `Missing buses for range merge ${spec.rangeName} -> ${spec.baseName}[${spec.lo}..${spec.hi}]`,
-                );
+                this.log( LogLevel.WARN, `Missing buses for range merge ${spec.rangeName} -> ${spec.baseName}[${spec.lo}..${spec.hi}]`);
                 continue;
             }
 
