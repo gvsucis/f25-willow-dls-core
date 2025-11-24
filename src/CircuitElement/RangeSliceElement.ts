@@ -23,13 +23,20 @@ export class RangeSliceElement extends CircuitElement {
         const baseVal = this.base.getValue();
 
         if (!baseVal) {
+            console.log(
+                `[RangeSliceElement] base has no value yet; lo=${this.lo}, hi=${this.hi}`,
+            );
             this.out.setValue(null, lastUpdate);
             return this.getPropagationDelay();
         }
-
+        const baseStr = String(baseVal);
         const start = Math.min(this.lo, this.hi);
         const end = Math.max(this.lo, this.hi);
         const sliceVal = baseVal.substring(start, end+1);
+         console.log(
+            `[RangeSliceElement] base='${baseStr}' (len=${baseStr.length}) ` +
+            `lo=${this.lo}, hi=${this.hi}, start=${start}, end=${end} -> out='${sliceVal}'`,
+        );
 
         this.out.setValue(sliceVal, lastUpdate);
         return this.getPropagationDelay();

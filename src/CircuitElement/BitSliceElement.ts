@@ -22,11 +22,18 @@ export class BitSliceElement extends CircuitElement {
 
         // If the base bus has no value yet, propagate null.
         if (!baseVal) {
+            console.log(
+                `[BitSliceElement] base has no value yet; bitIndex=${this.bitIndex}`,
+            );
             this.out.setValue(null, lastUpdate);
             return this.getPropagationDelay();
         }
         const outVal = baseVal.substring(this.bitIndex, this.bitIndex +1);
-
+        const baseStr = String(baseVal);
+        // console.log(
+        //     `[BitSliceElement] base='${baseStr}' (len=${baseStr.length}) ` +
+        //     `bitIndex=${this.bitIndex} -> out='${outVal}'`,
+        // );
         this.out.setValue(outVal, lastUpdate);
         return this.getPropagationDelay();
     }
