@@ -29,16 +29,32 @@ export class RangeSliceElement extends CircuitElement {
             this.out.setValue(null, lastUpdate);
             return this.getPropagationDelay();
         }
+        
         const baseStr = String(baseVal);
-        const start = Math.min(this.lo, this.hi);
-        const end = Math.max(this.lo, this.hi);
-        const sliceVal = baseVal.substring(start, end+1);
-         console.log(
-            `[RangeSliceElement] base='${baseStr}' (len=${baseStr.length}) ` +
-            `lo=${this.lo}, hi=${this.hi}, start=${start}, end=${end} -> out='${sliceVal}'`,
+        const width = baseStr.length;
+
+        const loN = Math.min(this.lo, this.hi);
+        const hiN = Math.max(this.lo, this.hi);
+
+        // Map N2T indices (LSB=0) to string indices (MSB=0)
+        const start = width - 1 - hiN;
+        const endExclusive = width - loN; // substring end is exclusive
+
+        if (start < 0 || endExclusive > width || start >= endExclusive) {
+            console.warn(
+                `[RangeSliceElement] invalid slice lo=${this.lo}, hi=${this.hi} for width=${width}`,
+            );
+            this.out.setValue(null, lastUpdate);
+            return this.getPropagationDelay();
+        }
+
+        const sliceVal = baseVal.substring(start, endExclusive);
+        console.log(
+            `[RangeSliceElement] base='${baseStr}' (len=${width}) ` +
+                `lo=${this.lo}, hi=${this.hi}, start=${start}, endExclusive=${endExclusive} -> out='${sliceVal}'`,
         );
 
         this.out.setValue(sliceVal, lastUpdate);
         return this.getPropagationDelay();
     }
-    }
+}

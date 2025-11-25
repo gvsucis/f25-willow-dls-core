@@ -28,12 +28,22 @@ export class BitSliceElement extends CircuitElement {
             this.out.setValue(null, lastUpdate);
             return this.getPropagationDelay();
         }
-        const outVal = baseVal.substring(this.bitIndex, this.bitIndex +1);
         const baseStr = String(baseVal);
-        // console.log(
-        //     `[BitSliceElement] base='${baseStr}' (len=${baseStr.length}) ` +
-        //     `bitIndex=${this.bitIndex} -> out='${outVal}'`,
-        // );
+        const width = baseStr.length;
+
+        // Nand2Tetris: bitIndex 0 = LSB (rightmost)
+        // Internal BitString: index 0 = MSB (leftmost)
+        const idxFromLeft = width - 1 - this.bitIndex;
+
+        if (idxFromLeft < 0 || idxFromLeft >= width) {
+            console.warn(
+                `[BitSliceElement] bitIndex=${this.bitIndex} out of range for width=${width}`,
+            );
+            this.out.setValue(null, lastUpdate);
+            return this.getPropagationDelay();
+        }
+
+        const outVal = baseVal.substring(idxFromLeft, idxFromLeft + 1);
         this.out.setValue(outVal, lastUpdate);
         return this.getPropagationDelay();
     }

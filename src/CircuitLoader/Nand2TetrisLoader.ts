@@ -115,6 +115,11 @@ type ParsedHDL = {
     parts?: HDLPart[];
 };
 
+type ChipPortSpec = {
+    inputs: Record<string, number>;
+    outputs: Record<string, number>;
+};
+
 // -------------------------------------------------------------------------------------
 // Name normalization helpers
 // -------------------------------------------------------------------------------------
@@ -289,12 +294,13 @@ const PIN_ORDERS: Record<string, { inPins: string[]; outPins: string[] }> = {
     Mux16:      { inPins: ["a", "b", "sel"],    outPins: ["out"] },
     Mux4Way16:  { inPins: ["a", "b", "c", "d", "sel"],                         outPins: ["out"] },
     Mux8Way16:  { inPins: ["a", "b", "c", "d", "e", "f", "g", "h", "sel"],     outPins: ["out"] },
-
+    
     DMux:       { inPins: ["in", "sel"],        outPins: ["a", "b"] },
     DMux4Way:   { inPins: ["in", "sel"],        outPins: ["a", "b", "c", "d"] },
     DMux8Way:   { inPins: ["in", "sel"],        outPins: ["a", "b", "c", "d", "e", "f", "g", "h"] },
-
+    
 };
+
 
 /**
  * Choose pin order for a part instance.
@@ -314,6 +320,120 @@ function choosePinOrder(
     if (!outPins.length && args["out"] != null) outPins = ["out"];
     return { inPins, outPins };
 }
+
+
+
+const CHIP_SPECS: Record<string, ChipPortSpec> = {
+    // --- Nand2Tetris-style primitives ---
+
+    And: {
+        inputs: { a: 1, b: 1 },
+        outputs: { out: 1 },
+    },
+    And16: {
+        inputs: { a: 16, b: 16 },
+        outputs: { out: 16 },
+    },
+
+    Nand: {
+        inputs: { a: 1, b: 1 },
+        outputs: { out: 1 },
+    },
+
+    Not: {
+        inputs: { in: 1 },
+        outputs: { out: 1 },
+    },
+    Not16: {
+        inputs: { in: 16 },
+        outputs: { out: 16 },
+    },
+
+    Or: {
+        inputs: { a: 1, b: 1 },
+        outputs: { out: 1 },
+    },
+    Or16: {
+        inputs: { a: 16, b: 16 },
+        outputs: { out: 16 },
+    },
+
+    Xor: {
+        inputs: { a: 1, b: 1 },
+        outputs: { out: 1 },
+    },
+
+    Add16: {
+        inputs: { a: 16, b: 16 },
+        outputs: { out: 16 },
+    },
+
+    HalfAdder: {
+        inputs: { a: 1, b: 1 },
+        outputs: { sum: 1, carry: 1 },
+    },
+
+    FullAdder: {
+        inputs: { a: 1, b: 1, c: 1 },
+        outputs: { sum: 1, carry: 1 },
+    },
+
+    Bit: {
+        inputs: { in: 1, load: 1 },
+        outputs: { out: 1 },
+    },
+
+     DFF: {
+        inputs: { clock: 1, d: 1, reset: 1, preset: 1, enable: 1 },
+        outputs: { q: 1, qInv: 1 }
+    },
+
+    // Multiplexers / demultiplexers
+    Mux: {
+        inputs: { a: 1, b: 1, sel: 1 },
+        outputs: { out: 1 },
+    },
+    Mux16: {
+        inputs: { a: 16, b: 16, sel: 1 },
+        outputs: { out: 16 },
+    },
+
+    Mux4Way16: {
+        inputs: {a: 16, b: 16, c: 16, d: 16, sel: 2},
+        outputs: {out: 16}
+    },
+
+    Mux8Way16: {
+        inputs: { a: 16, b: 16, c: 16, d: 16, e: 16, f: 16, g: 16, h: 16, sel: 3},
+        outputs: {out: 16}
+    },
+
+    DMux: {
+        inputs: { in: 1, sel: 1 },
+        outputs: { a: 1, b: 1 },
+    },
+    DMux4Way: {
+        inputs: { in: 1, sel: 2 },
+        outputs: { a: 1, b: 1, c: 1, d: 1 },
+    },
+    DMux8Way: {
+        inputs: { in: 1, sel: 3 },
+        outputs: { a: 1, b: 1, c: 1, d: 1, e: 1, f: 1, g: 1, h: 1,}
+    },
+}
+
+function getPortWidthHint(
+    type: string,
+    pin: string,
+    kind: "input" | "output",
+): number {
+    const spec = CHIP_SPECS[type];
+    if (!spec) return 1;
+
+    const table = kind === "input" ? spec.inputs : spec.outputs;
+    return table[pin] ?? 1;
+}
+
 
 // -------------------------------------------------------------------------------------
 // Bus utilities
@@ -409,6 +529,12 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
     private async loadIntoProject(project: CircuitProject, stream: Stream): Promise<void> {
         const text = await FileUtil.readTextStream(stream);
         const hdl = parseHDL(text) as ParsedHDL;
+
+        // Register this HDL chip's port widths in CHIP_SPECS.
+        CHIP_SPECS[hdl.name] = {
+            inputs: Object.fromEntries(hdl.inputs.map((p) => [p.name, p.width])),
+            outputs: Object.fromEntries(hdl.outputs.map((p) => [p.name, p.width])),
+        };
 
         // Prevent cycles: if we're already loading this chip name, it's a dependency loop.
         if (this.loadingStack.has(hdl.name)) {
@@ -618,6 +744,8 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
         //1) subcircuit? 
         const child = await this.ensureChildLoaded(project, type);
         if (child){
+            const childSpec = CHIP_SPECS[type];
+
             //bind by childs declared pin order 
             const childInputNames = Object.values(child.getInputs?.() ?? {})
                 .sort((a:any, b:any) => a.getIndex() - b.getIndex())
@@ -634,8 +762,8 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
                         `is missing a connection for input pin '${pin}'.`,
                     );
                 }
-                //width hint is conservative, ensureBus will reconcile
-                const bus = this.resolveInputSignal(busses, ref, 1);
+                const widthHint = childSpec?.inputs[pin] ?? getPortWidthHint(type, pin, "input");
+                const bus = this.resolveInputSignal(busses, ref, widthHint);
                 console.log(
                     `[N2TLoader]     Subcircuit input pin '${pin}' <- '${ref}' ` +
                     `busWidth=${bus.getWidth()}`,
@@ -651,7 +779,9 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
                         `is missing a connection for output pin '${pin}'.`,
                     );
                 }
-                const bus = this.resolveOutputSignal(busses, ref, 1);
+                const widthHint = childSpec?.outputs[pin] ?? getPortWidthHint(type, pin, "output");
+
+                const bus = this.resolveOutputSignal(busses, ref, widthHint);
                 console.log(
                   `[N2TLoader]     Subcircuit output pin '${pin}' -> '${ref}' ` +
                   `busWidth=${bus.getWidth()}`,
@@ -686,7 +816,8 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
                         `output pin '${pin}'.`,
                   );
                 }
-                const bus = this.resolveInputSignal(busses, ref, 1);
+                const widthHint = getPortWidthHint(type, pin, "input");
+                const bus = this.resolveInputSignal(busses, ref, widthHint);
                 console.log(
                   `[N2TLoader]     Primitive output '${pin}' <- '${ref}' ` +
                   `busWidth=${bus.getWidth()}`,
@@ -702,7 +833,8 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
                         `output pin '${pin}'.`,
                     );
                 }
-                const bus =  this.resolveOutputSignal(busses, ref, 1);
+                const widthHint = getPortWidthHint(type, pin, "output");
+                const bus =  this.resolveOutputSignal(busses, ref, widthHint);
                 console.log(
                   `[N2TLoader]     Primitive output '${pin}' -> '${ref}' ` +
                   `busWidth=${bus.getWidth()}`,

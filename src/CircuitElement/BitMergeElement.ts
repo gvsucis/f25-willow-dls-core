@@ -33,29 +33,27 @@ export class BitMergeElement extends CircuitElement {
 
         if (sourceStr.length !== 1) {
             throw new Error(
-                `[BitMergeElement] Expected 1-bit source, got width=${sourceVal.getWidth()}`,
+                `[BitMergeElement] expected 1-bit source, got length=${sourceStr.length}`,
             );
         }
 
-        // Start from the current base value, or all zeros if unset.
-        const existing = this.base.getValue();
-        let baseStr = existing
-            ? existing.toString()
-            : BitString.low(baseWidth).toString();
+        let baseStr = this.base.getValue()?.toString() ?? "".padStart(baseWidth, "0");
 
-        // Ensure we have exactly baseWidth bits.
         if (baseStr.length !== baseWidth) {
             baseStr = new BitString(baseStr, baseWidth).toString();
         }
 
-        if (this.bitIndex < 0 || this.bitIndex >= baseWidth) {
+        // Map Nand2Tetris index (LSB = 0) → internal index (MSB = 0)
+        const idxFromLeft = baseWidth - 1 - this.bitIndex;
+
+        if (idxFromLeft < 0 || idxFromLeft >= baseWidth) {
             throw new Error(
-                `[BitMergeElement] bitIndex=${this.bitIndex} out of range for baseWidth=${baseWidth}`,
+                `[BitMergeElement] bitIndex=${this.bitIndex} (mapped=${idxFromLeft}) out of range for baseWidth=${baseWidth}`,
             );
         }
 
-        const before = baseStr.substring(0, this.bitIndex);
-        const after = baseStr.substring(this.bitIndex + 1);
+        const before = baseStr.substring(0, idxFromLeft);
+        const after = baseStr.substring(idxFromLeft + 1);
 
         const mergedStr = before + sourceStr + after;
         const merged = new BitString(mergedStr, baseWidth);

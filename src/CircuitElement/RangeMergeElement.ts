@@ -24,7 +24,7 @@ export class RangeMergeElement extends CircuitElement {
         this.hi = hi;
     }
 
-    resolve(): number {
+   resolve(): number {
         const sourceVal = this.source.getValue();
         const lastUpdate = this.source.getLastUpdate();
 
@@ -34,35 +34,37 @@ export class RangeMergeElement extends CircuitElement {
         }
 
         const baseWidth = this.base.getWidth();
-        const lo = Math.min(this.lo, this.hi);
-        const hi = Math.max(this.lo, this.hi);
-
-        if (lo < 0 || hi >= baseWidth) {
-            throw new Error(
-                `[RangeMergeElement] range [${lo}..${hi}] out of bounds for baseWidth=${baseWidth}`,
-            );
-        }
-
-        const sliceWidth = hi - lo + 1;
         const sourceStr = sourceVal.toString();
 
-        if (sourceStr.length !== sliceWidth) {
-            throw new Error(
-                `[RangeMergeElement] Expected source width=${sliceWidth}, got width=${sourceVal.getWidth()}`,
-            );
-        }
-
-        const existing = this.base.getValue();
-        let baseStr = existing
-            ? existing.toString()
-            : BitString.low(baseWidth).toString();
+        let baseStr = this.base.getValue()?.toString() ?? "".padStart(baseWidth, "0");
 
         if (baseStr.length !== baseWidth) {
             baseStr = new BitString(baseStr, baseWidth).toString();
         }
 
-        const before = baseStr.substring(0, lo);
-        const after = baseStr.substring(hi + 1);
+        const loN = Math.min(this.lo, this.hi);
+        const hiN = Math.max(this.lo, this.hi);
+
+        // Map N2T [lo..hi] (LSB=0) to internal substring indices (MSB=0)
+        const start = baseWidth - 1 - hiN;
+        const endExclusive = baseWidth - loN;
+
+        if (start < 0 || endExclusive > baseWidth || start >= endExclusive) {
+            throw new Error(
+                `[RangeMergeElement] invalid slice lo=${this.lo}, hi=${this.hi} `
+                + `mapped to [${start}, ${endExclusive}) for baseWidth=${baseWidth}`,
+            );
+        }
+
+        if (sourceStr.length !== endExclusive - start) {
+            throw new Error(
+                `[RangeMergeElement] source width ${sourceStr.length} does not `
+                + `match target range size ${endExclusive - start} (lo=${this.lo}, hi=${this.hi})`,
+            );
+        }
+
+        const before = baseStr.substring(0, start);
+        const after = baseStr.substring(endExclusive);
 
         const mergedStr = before + sourceStr + after;
         const merged = new BitString(mergedStr, baseWidth);
