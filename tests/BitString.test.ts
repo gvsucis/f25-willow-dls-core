@@ -342,3 +342,77 @@ test("twosCompliment edge cases and lsb/msb boundaries", () => {
   expect(s.msb(4).toString()).toBe(s.toString());
   expect(s.lsb(4).toString()).toBe(s.toString());
 });
+
+test("bitSlice of length 1", () => {
+  const bs = new BitString("01100101");
+  expect(bs.bitSlice(0, 1).toString()).toBe("1");
+  expect(bs.bitSlice(1, 2).toString()).toBe("0");
+  expect(bs.bitSlice(2, 3).toString()).toBe("1");
+  expect(bs.bitSlice(3, 4).toString()).toBe("0");
+  expect(bs.bitSlice(6, 7).toString()).toBe("1");
+  expect(bs.bitSlice(7, 8).toString()).toBe("0");
+
+  const bs2 = new BitString("10011010");
+  expect(bs2.bitSlice(0, 1).toString()).toBe("0");
+  expect(bs2.bitSlice(1, 2).toString()).toBe("1");
+  expect(bs2.bitSlice(2, 3).toString()).toBe("0");
+  expect(bs2.bitSlice(3, 4).toString()).toBe("1");
+  expect(bs2.bitSlice(6, 7).toString()).toBe("0");
+  expect(bs2.bitSlice(7, 8).toString()).toBe("1");
+});
+
+
+test("bitSlice of length 2", () => {
+  const bs = new BitString("01100101");
+  expect(bs.bitSlice(0, 2).toString()).toBe("01");
+  expect(bs.bitSlice(1, 3).toString()).toBe("10");
+  expect(bs.bitSlice(2, 4).toString()).toBe("01");
+  expect(bs.bitSlice(3, 5).toString()).toBe("00");
+  expect(bs.bitSlice(5, 7).toString()).toBe("11");
+  expect(bs.bitSlice(6, 8).toString()).toBe("01");
+
+  const bs2 = new BitString("10011010");
+  expect(bs2.bitSlice(0, 2).toString()).toBe("10");
+  expect(bs2.bitSlice(1, 3).toString()).toBe("01");
+  expect(bs2.bitSlice(2, 4).toString()).toBe("10");
+  expect(bs2.bitSlice(3, 5).toString()).toBe("11");
+  expect(bs2.bitSlice(5, 7).toString()).toBe("00");
+  expect(bs2.bitSlice(6, 8).toString()).toBe("10");
+});
+
+test("bitSlice of length 3", () => {
+  const bs = new BitString("01100101");
+  expect(bs.bitSlice(0, 3).toString()).toBe("101");
+  expect(bs.bitSlice(1, 4).toString()).toBe("010");
+  expect(bs.bitSlice(2, 5).toString()).toBe("001");
+  expect(bs.bitSlice(3, 6).toString()).toBe("100");
+  expect(bs.bitSlice(5, 8).toString()).toBe("011");
+
+  const bs2 = new BitString("10011010");
+  expect(bs2.bitSlice(0, 3).toString()).toBe("010");
+  expect(bs2.bitSlice(1, 4).toString()).toBe("101");
+  expect(bs2.bitSlice(2, 5).toString()).toBe("110");
+  expect(bs2.bitSlice(3, 6).toString()).toBe("011");
+  expect(bs2.bitSlice(5, 8).toString()).toBe("100");
+});
+
+test("bitSlice of length 7", () => {
+  const bs = new BitString("01100101");
+  expect(bs.bitSlice(0, 7).toString()).toBe("1100101");
+  expect(bs.bitSlice(1, 8).toString()).toBe("0110010");
+});
+
+test("bitSlice of length 8", () => {
+  const bs = new BitString("01100101");
+  expect(bs.bitSlice(0, 7).toString()).toBe("1100101");
+  expect(bs.bitSlice(1, 8).toString()).toBe("0110010");
+});
+
+test("bitSlice with default end", () => {
+  const bs = new BitString("01100101");
+  expect(bs.bitSlice(7).toString()).toBe("0");
+  expect(bs.bitSlice(6).toString()).toBe("01");
+  expect(bs.bitSlice(5).toString()).toBe("011");
+  expect(bs.bitSlice(2).toString()).toBe("011001");
+  expect(bs.bitSlice(0).toString()).toBe("01100101");
+});

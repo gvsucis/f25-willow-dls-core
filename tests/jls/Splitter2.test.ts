@@ -36,7 +36,7 @@ beforeAll(async () => {
     JLSLoader,
     "tests/jls/Splitter2.jls",
     "Splitter2",
-    logger,
+    logger
   );
 });
 
@@ -46,24 +46,41 @@ function genTest(input: BitString) {
       InputA: input,
     });
 
-    //expect(results.outputs.SplitterOutput.toString()).toBe(input.toString());
-    //expect(results.outputs.Output0.toString()).toBe(input.substring(0, 1).toString());
-    //expect(results.outputs.Output1.toString()).toBe(
-    //   input.substring(1, 2).toString()
-    //);
-    //expect(results.outputs.Output3_1.toString()).toBe(
-      //input.substring(1, 3).toString()
-    //);
+    console.log(
+      `Testing input of ${input.toUnsigned()} --- ${input.bitSlice(1, 2).toString()}`
+    );
+
+    // Why are some of the output pins null?
+    console.log(results.outputs);
+
+    expect(results.outputs.Output0.toString()).toBe(
+      input.bitSlice(0, 1).toString()
+    );
+    expect(results.outputs.Output1.toString()).toBe(
+      input.bitSlice(1, 2).toString()
+    );
+    expect(results.outputs.Output3_1.toString()).toBe(
+      input.bitSlice(1, 3).toString()
+    );
+    expect(results.outputs.Output4.toString()).toBe(
+      input.bitSlice(4, 5).toString()
+    );
   };
 }
 
 let input = BitString.low(8);
 
+test(`By hand`, genTest(new BitString("10100101")));
+
+/*
 while (true) {
   test(`Splitter: ${input}`, genTest(input));
   input = input.add("00000001");
   // Overflow
-  if (input.toString() == "00000000") {
+  // if (input.toString() == "00000000") {
+  if (input.toString() == "00001111") {
     break;
   }
+  
 }
+*/
