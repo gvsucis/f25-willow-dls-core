@@ -400,7 +400,7 @@ export class JLSLoader extends CircuitLoader {
     // Elements are sorted by ID so they get a consistent index.
     const noWires = parsedElements
       .filter((e) => e.type != "WireEnd")
-      .sort((a, b) => a.props["id"][0].localeCompare(b.props["id"][0]));
+      .sort((a, b) => parseInt(a.props["id"][0]) - parseInt(b.props["id"][0]));
 
     // This block creates all the wires for the circuit, excluding subcircuits.
     const wires: Record<string, CircuitBus> = {};
@@ -414,6 +414,7 @@ export class JLSLoader extends CircuitLoader {
         parsedWires,
         directConnections,
       );
+
 
       let width: number;
       let inputs: Record<string, Input> | undefined;
@@ -469,7 +470,8 @@ export class JLSLoader extends CircuitLoader {
       }
 
       for (const connectedWire of connectedWires) {
-        if (wires[connectedWire.props["id"][0]]) {
+        const wireId = connectedWire.props["id"][0];
+        if (wires[wireId]) {
           // Skip wires that were already created by another element.
           // Each wire keeps the width from the first element that created it.
           continue;
@@ -479,6 +481,13 @@ export class JLSLoader extends CircuitLoader {
         // No wire width, locate the matching wire in the subcircuit.
         if (wireWidth == -1) {
           // console.log(JSON.stringify(connectedWire));
+
+          // Check if this wire is actually attached to the current element
+          // If not, skip it - it will be created when processing the element it's attached to
+          const attachedTo = connectedWire.props["attach"];
+          if (attachedTo && !attachedTo.includes(id)) {
+            continue;
+          }
 
           if (!connectedWire.props["put"]) {
             // We can't create the wire using this subcircuit. It should get created
@@ -539,7 +548,8 @@ export class JLSLoader extends CircuitLoader {
           }
         }
 
-        wires[connectedWire.props["id"][0]] = new CircuitBus(wireWidth);
+        const createdWireId = connectedWire.props["id"][0];
+        wires[createdWireId] = new CircuitBus(wireWidth);
       }
     }
 
@@ -892,9 +902,11 @@ export class JLSLoader extends CircuitLoader {
                   break;
                 }
               }
-            } else if (/-/.test(label)) {
-              // Range label "X-Y": find port that extracts bits [Y..X]
-              const [high, low] = label.split("-").map(n => parseInt(n));
+            } else if (/-/.test(label) || /_/.test(label)) {
+              // Range label "X-Y" or "X_Y": find port that extracts bits [Y..X]
+              // Support both hyphen and underscore as separators
+              const separator = /-/.test(label) ? "-" : "_";
+              const [high, low] = label.split(separator).map(n => parseInt(n));
               const expectedBits: number[] = [];
               for (let bit = low; bit <= high; bit++) {
                 expectedBits.push(bit);

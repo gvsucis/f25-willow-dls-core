@@ -116,7 +116,10 @@ export class Output extends CircuitElement {
 
   resolve(): number {
     const inputs = this.getInputs();
-    inputs.forEach((i) => (this.#value = i.getValue()));
+    inputs.forEach((i) => {
+      const val = i.getValue();
+      this.#value = val;
+    });
     return this.getPropagationDelay();
   }
 
