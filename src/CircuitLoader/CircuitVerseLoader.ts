@@ -69,115 +69,189 @@ import { FileUtil } from "../Util/File";
 import { ROM } from "../CircuitElement/ROM";
 import { CircuitVerseRAM } from "../CircuitElement/CircuitVerseRAM";
 
+/**
+ * Context object passed to element creation functions.
+ * Contains all necessary information to instantiate a circuit element from CircuitVerse data.
+ */
 type CircuitContext = {
+  /** Array of all circuit buses (connections between elements) in the current scope */
   nodes: CircuitBus[];
+  /** Raw CircuitVerse element data from the .cv file */
   data: any;
+  /** The circuit project being constructed, used for subcircuit references */
   project: CircuitProject;
 };
 
-// TODO: Consistent formatting of the keys on this object.
-const createElement: Record<string, (ctx: CircuitContext) => CircuitElement> = {
+/**
+ * Factory function type for creating circuit elements.
+ * Takes a CircuitContext and returns a fully constructed CircuitElement.
+ */
+type ElementFactory = (ctx: CircuitContext) => CircuitElement;
+
+/**
+ * Map of CircuitVerse element type names to their factory functions.
+ * Each factory function handles the specific wiring and configuration for that element type.
+ * 
+ * @example
+ * // Adding a new element type:
+ * createElement["MyNewGate"] = ({ nodes, data }) => 
+ *   new MyNewGate(
+ *     nodes[data.customData.nodes.input],
+ *     nodes[data.customData.nodes.output]
+ *   );
+ */
+const createElement: Record<string, ElementFactory> = {
+  /**
+   * Logic Gates - Basic combinational logic elements
+   */
   AndGate: ({ nodes, data }) =>
     new AndGate(
       data.customData.nodes.inp.map((i: number) => nodes[i]),
       [nodes[data.customData.nodes.output1]],
     ),
+
   NorGate: ({ nodes, data }) =>
     new NorGate(
       data.customData.nodes.inp.map((i: number) => nodes[i]),
       [nodes[data.customData.nodes.output1]],
     ),
+
   NandGate: ({ nodes, data }) =>
     new NandGate(
       data.customData.nodes.inp.map((i: number) => nodes[i]),
       [nodes[data.customData.nodes.output1]],
     ),
+
   OrGate: ({ nodes, data }) =>
     new OrGate(
       data.customData.nodes.inp.map((i: number) => nodes[i]),
       [nodes[data.customData.nodes.output1]],
     ),
+
   NotGate: ({ nodes, data }) =>
     new NotGate(
       [nodes[data.customData.nodes.inp1]],
       [nodes[data.customData.nodes.output1]],
     ),
+
   Buffer: ({ nodes, data }) =>
     new BufferGate(
       [nodes[data.customData.nodes.inp1]],
       [nodes[data.customData.nodes.output1]],
     ),
+
   XnorGate: ({ nodes, data }) =>
     new XnorGate(
       data.customData.nodes.inp.map((i: number) => nodes[i]),
       [nodes[data.customData.nodes.output1]],
     ),
+
   XorGate: ({ nodes, data }) =>
     new XorGate(
       data.customData.nodes.inp.map((i: number) => nodes[i]),
       [nodes[data.customData.nodes.output1]],
     ),
+
+  /**
+   * Multiplexers and Demultiplexers - Data routing elements
+   */
   Demultiplexer: ({ nodes, data }) =>
     new Demultiplexer(
       [nodes[data.customData.nodes.input]],
       data.customData.nodes.output1.map((i: number) => nodes[i]),
       nodes[data.customData.nodes.controlSignalInput],
     ),
+
   Multiplexer: ({ nodes, data }) =>
     new Multiplexer(
       data.customData.nodes.inp.map((i: number) => nodes[i]),
       [nodes[data.customData.nodes.output1]],
       nodes[data.customData.nodes.controlSignalInput],
     ),
+
+  /**
+   * Bit Manipulation Elements
+   */
   LSB: ({ nodes, data }) =>
     new LSB(
       nodes[data.customData.nodes.inp1],
       nodes[data.customData.nodes.output1],
       nodes[data.customData.nodes.enable],
     ),
+
   MSB: ({ nodes, data }) =>
     new MSB(
       nodes[data.customData.nodes.inp1],
       nodes[data.customData.nodes.output1],
       nodes[data.customData.nodes.enable],
     ),
+
   PriorityEncoder: ({ nodes, data }) =>
     new PriorityEncoder(
       data.customData.nodes.inp1.map((i: number) => nodes[i]),
       data.customData.nodes.output1.map((i: number) => nodes[i]),
       nodes[data.customData.nodes.enable],
     ),
+
   Decoder: ({ nodes, data }) =>
     new Decoder(
       nodes[data.customData.nodes.input],
       data.customData.nodes.output1.map((i: number) => nodes[i]),
     ),
+
+  BitSelector: ({ nodes, data }) =>
+    new BitSelector(
+      nodes[data.customData.nodes.inp1],
+      nodes[data.customData.nodes.output1],
+      nodes[data.customData.nodes.bitSelectorInp],
+    ),
+
+  /**
+   * Input/Output Elements - Interface between circuit and external world
+   */
   Input: ({ nodes, data }) =>
     new Input(data.index, data.label, [nodes[data.customData.nodes.output1]]),
-  // Treat a button just like a regular input.
+
+  // Button and Stepper behave identically to Input in simulation
   Button: ({ nodes, data }) =>
     new Input(data.index, data.label, [nodes[data.customData.nodes.output1]]),
-  // Treat a stepper just like a regular input.
+
   Stepper: ({ nodes, data }) =>
     new Input(data.index, data.label, [nodes[data.customData.nodes.output1]]),
+
   Output: ({ nodes, data }) =>
     new Output(data.index, data.label, nodes[data.customData.nodes.inp1]),
+
+  /**
+   * Hierarchical Circuit Elements
+   */
   SubCircuit: ({ nodes, data, project }) =>
     new SubCircuit(
       project.getCircuitById(data.id),
       data.inputNodes.map((nodeInd: number) => nodes[nodeInd]),
       data.outputNodes.map((nodeInd: number) => nodes[nodeInd]),
     ),
+
+  /**
+   * Bus Manipulation
+   */
   Splitter: ({ nodes, data }) =>
     new Splitter(
-      // No, this is not a typo in our code, their data file actually has "constructorParamaters"
-      // instead of the proper spelling "constructorParameters"...
+      // Note: CircuitVerse data files contain a typo: "constructorParamaters" instead of "constructorParameters"
       data.customData.constructorParamaters[2],
       nodes[data.customData.nodes.inp1],
       data.customData.nodes.outputs.map((nodeInd: number) => nodes[nodeInd]),
     ),
-  Power: ({ nodes, data }) => new Power(nodes[data.customData.nodes.output1]),
-  Ground: ({ nodes, data }) => new Ground(nodes[data.customData.nodes.output1]),
+
+  /**
+   * Power Sources and Constants
+   */
+  Power: ({ nodes, data }) =>
+    new Power(nodes[data.customData.nodes.output1]),
+
+  Ground: ({ nodes, data }) =>
+    new Ground(nodes[data.customData.nodes.output1]),
+
   ConstantVal: ({ nodes, data }) =>
     new Constant(
       nodes[data.customData.nodes.output1],
@@ -186,12 +260,17 @@ const createElement: Record<string, (ctx: CircuitContext) => CircuitElement> = {
         data.customData.constructorParamaters[1],
       ),
     ),
+
+  /**
+   * Sequential Logic Elements - Timing and state
+   */
   Random: ({ nodes, data }) =>
     new Random(
       nodes[data.customData.nodes.maxValue],
       nodes[data.customData.nodes.clockInp],
       nodes[data.customData.nodes.output],
     ),
+
   Counter: ({ nodes, data }) =>
     new Counter(
       nodes[data.customData.nodes.maxValue],
@@ -200,19 +279,30 @@ const createElement: Record<string, (ctx: CircuitContext) => CircuitElement> = {
       nodes[data.customData.nodes.output],
       nodes[data.customData.nodes.zero],
     ),
-  Clock: ({ nodes, data }) => new Clock(nodes[data.customData.nodes.output1]),
+
+  Clock: ({ nodes, data }) =>
+    new Clock(nodes[data.customData.nodes.output1]),
+
+  /**
+   * Tri-State and Controlled Elements
+   */
   TriState: ({ nodes, data }) =>
     new TriState(
       nodes[data.customData.nodes.inp1],
       nodes[data.customData.nodes.state],
       nodes[data.customData.nodes.output1],
     ),
-  BitSelector: ({ nodes, data }) =>
-    new BitSelector(
+
+  ControlledInverter: ({ nodes, data }) =>
+    new ControlledInverter(
       nodes[data.customData.nodes.inp1],
+      nodes[data.customData.nodes.state],
       nodes[data.customData.nodes.output1],
-      nodes[data.customData.nodes.bitSelectorInp],
     ),
+
+  /**
+   * Flip-Flops and Latches - Memory elements
+   */
   DflipFlop: ({ nodes, data }) =>
     new DFlipFlop(
       nodes[data.customData.nodes.clockInp],
@@ -223,6 +313,7 @@ const createElement: Record<string, (ctx: CircuitContext) => CircuitElement> = {
       nodes[data.customData.nodes.preset],
       nodes[data.customData.nodes.en],
     ),
+
   TflipFlop: ({ nodes, data }) =>
     new TFlipFlop(
       nodes[data.customData.nodes.clockInp],
@@ -233,6 +324,7 @@ const createElement: Record<string, (ctx: CircuitContext) => CircuitElement> = {
       nodes[data.customData.nodes.preset],
       nodes[data.customData.nodes.en],
     ),
+
   Dlatch: ({ nodes, data }) =>
     new DLatch(
       nodes[data.customData.nodes.clockInp],
@@ -240,6 +332,7 @@ const createElement: Record<string, (ctx: CircuitContext) => CircuitElement> = {
       nodes[data.customData.nodes.qOutput],
       nodes[data.customData.nodes.qInvOutput],
     ),
+
   JKflipFlop: ({ nodes, data }) =>
     new JKFlipFlop(
       nodes[data.customData.nodes.clockInp],
@@ -251,6 +344,7 @@ const createElement: Record<string, (ctx: CircuitContext) => CircuitElement> = {
       nodes[data.customData.nodes.preset],
       nodes[data.customData.nodes.en],
     ),
+
   SRflipFlop: ({ nodes, data }) =>
     new SRFlipFlop(
       nodes[data.customData.nodes.S],
@@ -261,11 +355,16 @@ const createElement: Record<string, (ctx: CircuitContext) => CircuitElement> = {
       nodes[data.customData.nodes.preset],
       nodes[data.customData.nodes.en],
     ),
+
+  /**
+   * Arithmetic Elements
+   */
   TwoCompliment: ({ nodes, data }) =>
     new TwosCompliment(
       nodes[data.customData.nodes.inp1],
       nodes[data.customData.nodes.output1],
     ),
+
   Adder: ({ nodes, data }) =>
     new Adder(
       nodes[data.customData.nodes.inpA],
@@ -274,12 +373,7 @@ const createElement: Record<string, (ctx: CircuitContext) => CircuitElement> = {
       nodes[data.customData.nodes.sum],
       nodes[data.customData.nodes.carryOut],
     ),
-  ControlledInverter: ({ nodes, data }) =>
-    new ControlledInverter(
-      nodes[data.customData.nodes.inp1],
-      nodes[data.customData.nodes.state],
-      nodes[data.customData.nodes.output1],
-    ),
+
   ALU: ({ nodes, data }) =>
     new CircuitVerseALU(
       nodes[data.customData.nodes.inp1],
@@ -288,6 +382,10 @@ const createElement: Record<string, (ctx: CircuitContext) => CircuitElement> = {
       nodes[data.customData.nodes.output],
       nodes[data.customData.nodes.carryOut],
     ),
+
+  /**
+   * Memory Elements - ROM and RAM
+   */
   Rom: ({ nodes, data }) =>
     new ROM(
       nodes[data.customData.nodes.memAddr],
@@ -298,6 +396,7 @@ const createElement: Record<string, (ctx: CircuitContext) => CircuitElement> = {
       ),
       16, // ROM is 16 bytes in CircuitVerse
     ),
+
   RAM: ({ nodes, data }) =>
     new CircuitVerseRAM(
       nodes[data.customData.nodes.address],
@@ -307,10 +406,10 @@ const createElement: Record<string, (ctx: CircuitContext) => CircuitElement> = {
       nodes[data.customData.nodes.dataOut],
       1024, // RAM is 1kb in CircuitVerse
       data.customData.constructorParamaters[1],
-      [], // No initial data stored in RAM.
+      [], // No initial data stored in RAM
     ),
-  // Functions exactly like RAM but is smaller and has
-  // custom data.
+
+  // EEPROM behaves like RAM but is smaller (256 bytes) and can have initial data
   EEPROM: ({ nodes, data }) =>
     new CircuitVerseRAM(
       nodes[data.customData.nodes.address],
@@ -327,133 +426,255 @@ const createElement: Record<string, (ctx: CircuitContext) => CircuitElement> = {
 };
 
 /**
- * A circuit loader that loads CircuitVerse `.cv` files. This loader is the
- * reference implementation of a circuit loader and actually is the inspiration
- * for a lot of the design of this engine. Decisions about how the engine should
- * be structured were made largely around how CircuitVerse stores data in their
- * data files, which means that circuits loaded from CircuitVerse will likely run
- * better than circuits from other engines, as this loader was developed in sync
- * with the rest of the engine, and others were added after.
+ * CircuitVerseLoader - Loads and parses CircuitVerse .cv files
+ * 
+ * This is the reference implementation for circuit loaders in this engine.
+ * The engine's architecture was designed around CircuitVerse's data format,
+ * making this loader particularly well-optimized.
+ * 
+ * ## File Format Overview
+ * 
+ * CircuitVerse .cv files are JSON-based and contain:
+ * - **Scopes**: Each scope represents a separate circuit/subcircuit
+ * - **Nodes**: Bus connections between elements (allNodes array)
+ * - **Elements**: Logic gates, I/O, memory, etc. (keyed by type name)
+ * 
+ * ## Loading Process
+ * 
+ * 1. Parse JSON from stream
+ * 2. For each scope:
+ *    a. Create all CircuitBus objects from allNodes array
+ *    b. Connect buses according to connections arrays
+ *    c. Instantiate circuit elements using createElement factories
+ *    d. Assemble into Circuit object
+ * 3. Add all circuits to CircuitProject
+ * 
+ * ## Adding Support for New Elements
+ * 
+ * To add support for a new CircuitVerse element type:
+ * 
+ * 1. Import the element class at the top of this file
+ * 2. Add a factory function to the createElement map:
+ * 
+ * ```typescript
+ * createElement["NewElementType"] = ({ nodes, data }) => {
+ *   return new NewElement(
+ *     nodes[data.customData.nodes.input1],
+ *     nodes[data.customData.nodes.output1]
+ *   );
+ * };
+ * ```
+ * 
+ * 3. Map the CircuitVerse node names (from data.customData.nodes) to your element's constructor
+ * 
+ * ## Known CircuitVerse Quirks
+ * 
+ * - Typo in data files: "constructorParamaters" instead of "constructorParameters"
+ * - Elements are stored as top-level keys in scope objects (poor data structure)
+ * - Visual-only elements (Text, Rectangle, Arrow, etc.) are mixed with functional elements
+ * 
+ * @example
+ * ```typescript
+ * const loader = new CircuitVerseLoader();
+ * const stream = fs.createReadStream('myCircuit.cv');
+ * const project = await loader.load(stream);
+ * const mainCircuit = project.getCircuitById('main-circuit-id');
+ * ```
  */
 export class CircuitVerseLoader extends CircuitLoader {
+  /**
+   * List of scope keys that are not circuit elements.
+   * These are metadata or visual-only annotations that should be ignored during loading.
+   */
+  private static readonly NON_ELEMENT_KEYS = [
+    "layout",           // Visual layout information
+    "verilogMetadata",  // Verilog export metadata
+    "allNodes",         // Bus/connection definitions
+    "id",               // Scope identifier
+    "name",             // Scope name
+    "restrictedCircuitElementsUsed", // Usage tracking
+    "nodes",            // Node metadata
+    // Visual annotation elements (not functional)
+    "Text",
+    "Rectangle",
+    "Arrow",
+    "ImageAnnotation",
+  ];
+
   constructor() {
     super("CircuitVerseLoader");
   }
 
+  /**
+   * Load a CircuitVerse .cv file from a stream.
+   * 
+   * @param stream - Readable stream containing CircuitVerse JSON data
+   * @returns Promise resolving to a complete CircuitProject
+   * @throws Error if the file contains unsupported element types
+   * 
+   * @example
+   * ```typescript
+   * const loader = new CircuitVerseLoader();
+   * const fileStream = fs.createReadStream('circuit.cv');
+   * const project = await loader.load(fileStream);
+   * console.log(`Loaded ${project.getCircuits().length} circuits`);
+   * ```
+   */
   async load(stream: Stream): Promise<CircuitProject> {
     const project: CircuitProject = new CircuitProject();
     this.propagateLoggersTo(project);
 
     const data = await FileUtil.readJsonStream(stream);
 
-    this.log(LogLevel.INFO, `Loading circuit from data:`, data);
+    this.log(LogLevel.INFO, `Loading CircuitVerse project with ${data.scopes.length} scope(s)`);
+    this.log(LogLevel.DEBUG, `Full data:`, data);
 
-    // Each scope is a circuit
+    // Process each scope (circuit) in the project
     for (const scopeInd in data.scopes) {
       const scope = data.scopes[scopeInd];
+      this.log(LogLevel.DEBUG, `Loading scope '${scope.name}' (${scope.id})`);
 
-      this.log(LogLevel.DEBUG, `Loading scope:`, scope);
+      // Phase 1: Create all circuit buses
+      const nodes = this.createBuses(scope);
 
-      const nodes: CircuitBus[] = [];
+      // Phase 2: Connect buses according to connection data
+      this.connectBuses(scope, nodes);
 
-      // First pass over nodes array to create nodes.
-      for (let nodeInd = 0; nodeInd < scope.allNodes.length; nodeInd++) {
-        const scopeNode = scope.allNodes[nodeInd];
-        const node = new CircuitBus(scopeNode.bitWidth);
-        nodes.push(node);
-        this.log(
-          LogLevel.TRACE,
-          `Created bus with width ${scopeNode.bitWidth}`,
-        );
-      }
+      // Phase 3: Collect all functional circuit elements
+      const elementDataArray = this.collectElements(scope);
 
-      // Second pass over nodes to add connections now that all nodes
-      // are instantiated.
-      for (let nodeInd = 0; nodeInd < scope.allNodes.length; nodeInd++) {
-        const scopeNode = scope.allNodes[nodeInd];
+      // Phase 4: Instantiate circuit elements
+      const elements = this.instantiateElements(elementDataArray, nodes, project, scope);
 
-        for (const connectInd in scopeNode.connections) {
-          const ind = scopeNode.connections[connectInd];
-          nodes[nodeInd].connect(nodes[ind]);
-          this.log(LogLevel.TRACE, `Connecting bus: ${nodeInd} => ${ind}`);
-        }
-      }
-
-      // CircuitVerse stores elements keyed by their type
-      // in the same object as the scope properties. This is... dumb.
-      //
-      // Since we don't know what types we have in advnance, we create
-      // a blacklist of all the keys that we know aren't circuit element
-      // arrays, and don't process those.
-      const blacklistKeys = [
-        "layout",
-        "verilogMetadata",
-        "allNodes",
-        "id",
-        "name",
-        "restrictedCircuitElementsUsed",
-        "nodes",
-        // Annotation elements which are visual only.
-        "Text",
-        "Rectangle",
-        "Arrow",
-        "ImageAnnotation",
-      ];
-
-      this.log(LogLevel.TRACE, "Collecting scope elements...");
-      const elementArray = Object.keys(scope)
-        .filter((k) => !blacklistKeys.includes(k))
-        .map((k) =>
-          scope[k].map((e: any, ind: number) => {
-            e.objectType = k;
-            e.index = ind;
-            return e;
-          }),
-        )
-        .flat();
-
-      const id = scope.id;
-      const name = scope.name;
-      const elements: CircuitElement[] = [];
-
-      for (const i in elementArray) {
-        const elementData = elementArray[i];
-        const type = elementData.objectType;
-
-        this.log(
-          LogLevel.TRACE,
-          `Creating element of type '${type}'...`,
-          elementData,
-        );
-
-        if (!createElement[type]) {
-          throw new Error(
-            `Circuit '${name}' (${id}) uses unsupported element: ${type}.`,
-          );
-        }
-
-        const newElement = createElement[type]({
-          project: project,
-          nodes: nodes,
-          data: elementData,
-        })
-          .setLabel(elementData.label)
-          .setPropagationDelay(elementData.propagationDelay ?? 0);
-
-        //console.log(LogLevel.DEBUG, `Creating element of type '${type}' with label '${data.label}'...`, elementData)
-
-        elements.push(newElement);
-      }
-
-      // The final circuit for this scope.
-      this.log(
-        LogLevel.TRACE,
-        "Constructing circuit and adding it to the project...",
-      );
-      const circuit = new Circuit(id, name, elements);
+      // Phase 5: Create and register the circuit
+      const circuit = new Circuit(scope.id, scope.name, elements);
       project.addCircuit(circuit);
+
+      this.log(LogLevel.INFO, `Successfully loaded circuit '${scope.name}' with ${elements.length} element(s)`);
     }
 
     return project;
+  }
+
+  /**
+   * Create CircuitBus objects for all nodes in a scope.
+   * 
+   * @param scope - CircuitVerse scope data
+   * @returns Array of CircuitBus objects indexed by node ID
+   */
+  private createBuses(scope: any): CircuitBus[] {
+    const nodes: CircuitBus[] = [];
+
+    for (let nodeInd = 0; nodeInd < scope.allNodes.length; nodeInd++) {
+      const scopeNode = scope.allNodes[nodeInd];
+      const node = new CircuitBus(scopeNode.bitWidth);
+      nodes.push(node);
+
+      this.log(
+        LogLevel.TRACE,
+        `Created bus ${nodeInd} with width ${scopeNode.bitWidth}`,
+      );
+    }
+
+    return nodes;
+  }
+
+  /**
+   * Connect all buses according to the connection data in the scope.
+   * 
+   * @param scope - CircuitVerse scope data
+   * @param nodes - Array of CircuitBus objects to connect
+   */
+  private connectBuses(scope: any, nodes: CircuitBus[]): void {
+    for (let nodeInd = 0; nodeInd < scope.allNodes.length; nodeInd++) {
+      const scopeNode = scope.allNodes[nodeInd];
+
+      for (const connectInd in scopeNode.connections) {
+        const targetInd = scopeNode.connections[connectInd];
+        nodes[nodeInd].connect(nodes[targetInd]);
+
+        this.log(
+          LogLevel.TRACE,
+          `Connected bus ${nodeInd} => ${targetInd}`,
+        );
+      }
+    }
+  }
+
+  /**
+   * Collect all functional circuit elements from a scope.
+   * 
+   * CircuitVerse stores elements as arrays keyed by their type name.
+   * This method filters out non-element keys and flattens all element arrays.
+   * 
+   * @param scope - CircuitVerse scope data
+   * @returns Array of element data objects with objectType and index properties added
+   */
+  private collectElements(scope: any): any[] {
+    this.log(LogLevel.TRACE, "Collecting circuit elements from scope...");
+
+    const elementArray = Object.keys(scope)
+      .filter((key) => !CircuitVerseLoader.NON_ELEMENT_KEYS.includes(key))
+      .flatMap((elementType) =>
+        scope[elementType].map((elementData: any, index: number) => {
+          // Add metadata to help with debugging and error messages
+          elementData.objectType = elementType;
+          elementData.index = index;
+          return elementData;
+        }),
+      );
+
+    this.log(LogLevel.TRACE, `Found ${elementArray.length} element(s) to instantiate`);
+    return elementArray;
+  }
+
+  /**
+   * Instantiate circuit elements from their data representations.
+   * 
+   * @param elementDataArray - Array of element data objects
+   * @param nodes - Array of CircuitBus objects for wiring
+   * @param project - CircuitProject for subcircuit references
+   * @param scope - Current scope (for error messages)
+   * @returns Array of instantiated CircuitElement objects
+   * @throws Error if an unsupported element type is encountered
+   */
+  private instantiateElements(
+    elementDataArray: any[],
+    nodes: CircuitBus[],
+    project: CircuitProject,
+    scope: any,
+  ): CircuitElement[] {
+    const elements: CircuitElement[] = [];
+
+    for (const elementData of elementDataArray) {
+      const type = elementData.objectType;
+
+      this.log(
+        LogLevel.TRACE,
+        `Creating element of type '${type}' (label: '${elementData.label || 'unlabeled'}')`,
+      );
+
+      // Check if we have a factory for this element type
+      const factory = createElement[type];
+      if (!factory) {
+        throw new Error(
+          `Circuit '${scope.name}' (${scope.id}) uses unsupported element type: ${type}. ` +
+          `To add support, create a factory function in the createElement map.`,
+        );
+      }
+
+      // Create the element using its factory function
+      const newElement = factory({
+        project: project,
+        nodes: nodes,
+        data: elementData,
+      })
+        .setLabel(elementData.label)
+        .setPropagationDelay(elementData.propagationDelay ?? 0);
+
+      elements.push(newElement);
+    }
+
+    return elements;
   }
 }

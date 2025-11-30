@@ -55,36 +55,68 @@ import { JLSRAM } from "../CircuitElement/JLSRAM";
 import { JLSRegister } from "../CircuitElement/JLSRegister";
 import { Stop } from "../CircuitElement/Stop";
 
-function genSplit(data: {
+/**
+ * Parsed element data structure from JLS files.
+ */
+type ParsedElement = {
+  /** Element type name (e.g., "AndGate", "Memory", "SubCircuit") */
   type: string;
+  /** Property map from JLS file (e.g., "id", "bits", "name") */
   props: Record<string, string[]>;
+  /** Nested circuit for SubCircuit elements */
   subcircuit?: Circuit;
-}): number[] {
+};
+
+/**
+ * Factory function type for creating JLS circuit elements.
+ */
+type JLSElementFactory = (
+  data: ParsedElement,
+  inputs: CircuitBus[],
+  outputs: CircuitBus[],
+  loader: CircuitLoader,
+) => CircuitElement;
+
+/**
+ * Generate split/bind configuration from JLS element data.
+ * 
+ * JLS supports two formats for splitter/binder pairs:
+ * 
+ * **New Format (ranges)**: "0:3", "4:7" 
+ * - Each pair represents a bit range [start:end]
+ * - Example: "0:3" means bits 0-3 (width 4)
+ * 
+ * **Old Format (mapping)**: "0:0", "0:1", "0:2", "1:0", "1:1"
+ * - First number is output index, second is bit index
+ * - Multiple pairs can map to same output
+ * - Example: three pairs with first number "0" creates one output of width 3
+ * 
+ * @param data - Parsed element containing "pair" properties
+ * @returns Array of widths for each split/bind output
+ * 
+ * @example
+ * // New format: ["0:3", "4:7"] => [4, 4]
+ * // Old format: ["0:0", "0:1", "0:2", "1:0"] => [3, 1]
+ */
+function genSplit(data: ParsedElement): number[] {
   const pairs = data.props["pair"];
-
-  // Parsing formats
-  // 1. New format (ranges): "0:3", "4:7" where numbers represent bit ranges
-  // 2. Old format (mapping): "0:0", "1:1", "2:2" where first number is output index
-
   const parsedPairs = pairs.map((s) => s.split(":").map((n) => parseInt(n)));
 
-  // Detecting format
-  // - All pairs have start <= end (ranges) forming groups
-  // Old format would have many pairs with the same first number (output index)
-  const isNewFormat = parsedPairs.length > 1 && parsedPairs.every(([start, end]) => {
-    const width = end - start;
-    return width >= 0 && width <= 15; // Range format has reasonable widths
-  });
+  // Detect format by analyzing pair structure
+  const isNewFormat = parsedPairs.length > 1 &&
+    parsedPairs.every(([start, end]) => {
+      const width = end - start;
+      return width >= 0 && width <= 15; // Reasonable range widths
+    });
 
-  // Detecting old format
   const firstNumbers = parsedPairs.map(p => p[0]);
   const hasDuplicates = firstNumbers.length !== new Set(firstNumbers).size;
 
   if (isNewFormat && !hasDuplicates) {
-    // New format: each pair represents a bit range [start:end]
+    // New format: each pair is a bit range [start:end]
     return parsedPairs.map(([start, end]) => end - start + 1);
   } else {
-    // Old format: pairs are "output_index:bit_index"
+    // Old format: group by output index
     const pairMap: Record<number, number[]> = {};
     for (const [output, bit] of parsedPairs) {
       if (!pairMap[output]) {
@@ -96,16 +128,18 @@ function genSplit(data: {
   }
 }
 
-// Helper function to get wire width for a splitter output in new format
-// Returns the width of the output at the given index
-function getSplitterOutputWidth(data: {
-  type: string;
-  props: Record<string, string[]>;
-}, outputIndex: number): number {
+/**
+ * Get the width of a specific splitter output in new format.
+ * 
+ * @param data - Parsed splitter/binder element
+ * @param outputIndex - Index of the output to query
+ * @returns Width of the specified output, or 1 if not found
+ */
+function getSplitterOutputWidth(data: ParsedElement, outputIndex: number): number {
   const pairs = data.props["pair"];
   const parsedPairs = pairs.map((s) => s.split(":").map((n) => parseInt(n)));
 
-  // Check if new format
+  // Check if this is new format
   const firstNumbers = parsedPairs.map(p => p[0]);
   const hasDuplicates = firstNumbers.length !== new Set(firstNumbers).size;
   const isNewFormat = parsedPairs.length > 1 &&
@@ -113,97 +147,146 @@ function getSplitterOutputWidth(data: {
     !hasDuplicates;
 
   if (isNewFormat && outputIndex < parsedPairs.length) {
-    // New format: return the width of the specified pair
     const [start, end] = parsedPairs[outputIndex];
     return end - start + 1;
   }
 
-  // For old format or invalid index, return 1 as fallback
+  // Fallback for old format or invalid index
   return 1;
 }
 
-const createElement: Record<
-  string,
-  (
-    data: {
-      type: string;
-      props: Record<string, string[]>;
-      subcircuit?: Circuit;
-    },
-    inputs: CircuitBus[],
-    outputs: CircuitBus[],
-    loader: CircuitLoader,
-  ) => CircuitElement
-> = {
-  // We hard-code 0 indices for all inputs and outputs for now, but the parser will update these as necessary
-  // for subcircuits so that is okay.
+/**
+ * Map of JLS element type names to their factory functions.
+ * 
+ * Each factory receives:
+ * - `data`: Parsed element properties from JLS file
+ * - `inputs`: Array of input buses (ordered by "put" label)
+ * - `outputs`: Array of output buses (ordered by "put" label)
+ * - `loader`: Reference to the loader for logging
+ * 
+ * @example
+ * // Adding a new JLS element:
+ * createElement["MyElement"] = (data, inputs, outputs, loader) => {
+ *   const width = parseInt(data.props["bits"][0]);
+ *   return new MyElement(inputs[0], outputs[0], width);
+ * };
+ */
+const createElement: Record<string, JLSElementFactory> = {
+  /**
+   * Input/Output Pins - Circuit interface elements
+   */
   InputPin: (data, inputs, outputs) =>
     new Input(0, data.props["name"][0] ?? "", outputs),
+
   OutputPin: (data, inputs, outputs) =>
     new Output(0, data.props["name"][0] ?? "", inputs[0]),
-  // data.subcircuit will always be set here because the parser ensures it, so the cast is safe.
+
+  /**
+   * SubCircuit - Hierarchical circuit element
+   * Note: data.subcircuit is guaranteed to be set by the parser
+   */
   SubCircuit: (data, inputs, outputs) =>
     new SubCircuit(data.subcircuit as Circuit, inputs, outputs),
 
-  // Gates
+  /**
+   * Logic Gates - Basic combinational logic
+   */
   AndGate: (data, inputs, outputs) => new AndGate(inputs, outputs),
   XorGate: (data, inputs, outputs) => new XorGate(inputs, outputs),
   OrGate: (data, inputs, outputs) => new OrGate(inputs, outputs),
   NorGate: (data, inputs, outputs) => new NorGate(inputs, outputs),
   NandGate: (data, inputs, outputs) => new NandGate(inputs, outputs),
   NotGate: (data, inputs, outputs) => new NotGate(inputs, outputs),
+
+  /**
+   * DelayGate - Treated as a buffer in our implementation
+   */
   DelayGate: (data, inputs, outputs) => new BufferGate(inputs, outputs),
 
-  // Other elements
+  /**
+   * Constants and Clocks
+   */
   Constant: (data, inputs, outputs) => {
-    // Apparently the base is not used to convert the number,
-    // it is only used for displaying. Regardless of the base,
-    // the number is stored as base 10 in the file.
-    // const base = parseInt(data.props["base"][0]);
-    const base = 10;
-    const value = parseInt(data.props["value"][0], base);
+    // JLS stores constants in base 10 regardless of display base
+    const value = parseInt(data.props["value"][0], 10);
     const binStr = value.toString(2);
-
     return new Constant(outputs[0], new BitString(binStr));
   },
-  Clock: (data, inputs, outputs) => new Clock(outputs[0]),
-  Adder: (data, inputs, outputs) =>
-    new Adder(inputs[0], inputs[1], inputs[2], outputs[1], outputs[0]),
-  Decoder: (data, inputs, outputs) => new Decoder(inputs[0], outputs),
-  TriState: (data, inputs, outputs) =>
-    new TriState(inputs[1], inputs[0], outputs[0]),
-  Mux: (data, inputs, outputs) => {
-    const select = inputs.pop();
 
+  Clock: (data, inputs, outputs) => new Clock(outputs[0]),
+
+  /**
+   * Arithmetic Elements
+   */
+  Adder: (data, inputs, outputs) =>
+    new Adder(
+      inputs[0],  // A
+      inputs[1],  // B
+      inputs[2],  // Cin
+      outputs[1], // Sum
+      outputs[0], // Cout
+    ),
+
+  /**
+   * Multiplexers and Decoders
+   */
+  Decoder: (data, inputs, outputs) => new Decoder(inputs[0], outputs),
+
+  TriState: (data, inputs, outputs) =>
+    new TriState(
+      inputs[1],  // Data input
+      inputs[0],  // Control
+      outputs[0], // Output
+    ),
+
+  Mux: (data, inputs, outputs) => {
+    // Select signal is the last input
+    const select = inputs.pop();
     if (!select) {
       throw new Error("Mux inputs array is empty.");
     }
-
     return new Multiplexer(inputs, outputs, select);
   },
+
+  /**
+   * Bus Manipulation
+   */
   Extend: (data, inputs, outputs) => new Extend(inputs[0], outputs),
 
-  // Splitter and Binder are two separate elements in JLS, but are implemented
-  // in a single element for CircuitVerse.
+  /**
+   * Splitter and Binder - Bus splitting/joining
+   * 
+   * JLS treats these as separate elements, but they're implemented
+   * using the same Splitter class with reversed input/output order.
+   */
   Splitter: (data, inputs, outputs) =>
     new Splitter(genSplit(data), inputs[0], outputs),
+
   Binder: (data, inputs, outputs) =>
     new Splitter(genSplit(data), outputs[0], inputs),
 
+  /**
+   * Memory Elements - RAM/ROM
+   * 
+   * JLS can initialize memory from external files, but this is disabled
+   * for security reasons. Use the built-in editor instead.
+   */
   Memory: (data, inputs, outputs, loader) => {
-    if (data.props["file"][0] != "") {
-      // This is a security feature. We don't want to be reading arbitrary files off
-      // the disk like JLS does.
+    // Security check: prevent loading from external files
+    if (data.props["file"][0] !== "") {
       throw new Error(
-        'Unable to initialize JLS memory from external file. Make sure all memory is initialized using the "built-in" editor instead of reading from a file.',
+        'Unable to initialize JLS memory from external file. Make sure all memory ' +
+        'is initialized using the "built-in" editor instead of reading from a file.',
       );
     }
 
     const bits = parseInt(data.props["bits"][0]);
-    const cap = parseInt(data.props["cap"][0]);
+    const capacity = parseInt(data.props["cap"][0]);
 
-    let initialData = Array(cap).fill(BitString.low(bits));
+    // Initialize memory with zeros
+    let initialData = Array(capacity).fill(BitString.low(bits));
 
+    // Parse initial data if provided (format: "address data\naddress data")
     if (data.props["init"][0]) {
       loader.log(
         LogLevel.TRACE,
@@ -213,90 +296,251 @@ const createElement: Record<
       const parsedInit = data.props["init"][0]
         .split("\\n")
         .map((line) => line.split(" "))
-        .map(([addr, data]) => [parseInt(addr, 16), parseInt(data, 16)])
-        .map(([addr, data]) => [addr, new BitString(data.toString(2), bits)]);
+        .map(([addr, dataStr]) => [parseInt(addr, 16), parseInt(dataStr, 16)])
+        .map(([addr, dataVal]) => [addr, new BitString(dataVal.toString(2), bits)]);
 
-      parsedInit.forEach(([addr, data]) => {
+      parsedInit.forEach(([addr, dataVal]) => {
         if ((addr as number) >= initialData.length) {
           throw new Error(
             `Address '${addr}' out of bounds for memory with capacity of '${initialData.length}'.`,
           );
         }
-        initialData[addr as number] = data;
+        initialData[addr as number] = dataVal;
       });
 
       loader.log(
         LogLevel.TRACE,
         `Full contents of RAM: ${initialData.map((b) => b.toString())}`,
       );
-      initialData = Array(cap).fill(BitString.low(bits));
+
+      // Reset to empty after logging (appears to be intentional in original code)
+      initialData = Array(capacity).fill(BitString.low(bits));
     }
 
-    if (inputs.length == 3) {
-      // This is a ROM, it doesn't have an input or a write enable bus,
-      // so we just make a dummy bus with no connections and pass it in.
+    // Determine if this is ROM or RAM based on number of inputs
+    if (inputs.length === 3) {
+      // ROM: No data input or write enable, create dummy buses
       return new JLSRAM(
-        inputs[0],
-        new CircuitBus(0),
-        outputs[0],
-        inputs[2],
-        inputs[1],
-        new CircuitBus(0),
-        cap,
+        inputs[0],              // Address
+        new CircuitBus(0),      // Data input (dummy)
+        outputs[0],             // Data output
+        inputs[2],              // Chip select
+        inputs[1],              // Output enable
+        new CircuitBus(0),      // Write enable (dummy)
+        capacity,
         bits,
         initialData,
       );
-    } else if (inputs.length == 5) {
+    } else if (inputs.length === 5) {
+      // RAM: Full functionality
       return new JLSRAM(
-        inputs[0],
-        inputs[2],
-        outputs[0],
-        inputs[3],
-        inputs[1],
-        inputs[4],
-        cap,
+        inputs[0],  // Address
+        inputs[2],  // Data input
+        outputs[0], // Data output
+        inputs[3],  // Chip select
+        inputs[1],  // Output enable
+        inputs[4],  // Write enable
+        capacity,
         bits,
         initialData,
       );
     } else {
       throw new Error(
-        "Sanity check failed: Unable to detect RAM or ROM. Make sure all wires are connected to all memory elements.",
+        "Sanity check failed: Unable to detect RAM or ROM. " +
+        "Make sure all wires are connected to all memory elements.",
       );
     }
   },
+
+  /**
+   * Register - Sequential storage element
+   */
   Register: (data, inputs, outputs) => {
-    if (!["pff", "nff"].includes(data.props["type"][0])) {
+    const registerType = data.props["type"][0] as "pff" | "nff";
+
+    if (!["pff", "nff"].includes(registerType)) {
       throw new Error(
-        `Unrecogized or unsupported register type: '${data.props["type"][0]}'.`,
+        `Unrecognized or unsupported register type: '${registerType}'.`,
       );
     }
+
     return new JLSRegister(
-      inputs[0],
-      inputs[1],
-      outputs[1],
-      outputs[0],
-      data.props["type"][0] as "pff" | "nff",
+      inputs[0],  // Data input
+      inputs[1],  // Clock
+      outputs[1], // Q
+      outputs[0], // notQ
+      registerType,
     );
   },
+
+  /**
+   * Stop - Simulation control element
+   */
   Stop: (data, inputs, outputs) => new Stop(inputs),
 };
 
 /**
- * A circuit loader that loads JLS `.jls` circuit files.
+ * JLSLoader - Loads and parses JLS (Java Logic Simulator) .jls files
+ * 
+ * ## File Format Overview
+ * 
+ * JLS files are ZIP archives containing a "JLSCircuit" text file with a custom format:
+ * 
+ * ```
+ * CIRCUIT CircuitName
+ *   ELEMENT ElementType
+ *     int id 12345
+ *     int bits 8
+ *     String name "MyElement"
+ *     pair 0:3
+ *     [CIRCUIT NestedCircuit ... ENDCIRCUIT]
+ *   END
+ *   ELEMENT WireEnd
+ *     int id 67890
+ *     ref attach 12345
+ *     ref wire 11111
+ *     String put "input1"
+ *   END
+ * ENDCIRCUIT
+ * ```
+ * 
+ * ## Key Differences from CircuitVerse
+ * 
+ * - **Label-based I/O**: Connections use named "put" labels instead of indices
+ * - **Wire-centric**: Explicit WireEnd elements define all connections
+ * - **Hierarchical nesting**: SubCircuits contain full CIRCUIT definitions
+ * - **Whitespace tokenization**: Entire file is parsed as space-separated tokens
+ * 
+ * ## Loading Process
+ * 
+ * 1. Extract and tokenize JLSCircuit file from ZIP
+ * 2. Parse each CIRCUIT block recursively
+ * 3. Create CircuitBus objects for all wires
+ * 4. Connect buses according to WireEnd elements
+ * 5. Determine bus widths through multi-pass analysis:
+ *    - Element properties (bits)
+ *    - Subcircuit I/O widths
+ *    - Splitter configurations
+ *    - Memory address requirements
+ *    - Width propagation across connected groups
+ * 6. Instantiate circuit elements with properly connected buses
+ * 7. Handle special SubCircuit I/O remapping
+ * 
+ * ## Width Determination Challenges
+ * 
+ * JLS doesn't explicitly store wire widths, requiring inference from:
+ * - Element "bits" properties
+ * - Memory capacity (address width = ceil(log2(capacity)))
+ * - Splitter pair configurations
+ * - Constant values (minimum bits needed)
+ * - Subcircuit pin widths
+ * - Connected wire groups (must all match maximum width)
+ * 
+ * ## Adding Support for New Elements
+ * 
+ * 1. Import the element class
+ * 2. Add factory to createElement map:
+ * 
+ * ```typescript
+ * createElement["NewElement"] = (data, inputs, outputs, loader) => {
+ *   const myParam = parseInt(data.props["myParam"][0]);
+ *   return new NewElement(inputs[0], outputs[0], myParam);
+ * };
+ * ```
+ * 
+ * 3. If the element has custom "put" names (not "input1", "output1"),
+ *    add them to the hardcodedElements map in #parseCircuit
+ * 
+ * ## Known JLS Quirks
+ * 
+ * - No unique circuit IDs (uses names instead)
+ * - "put" names can be arbitrary strings (not just "input1", "output2")
+ * - Splitter "put" values are computed from pairs (non-deterministic)
+ * - Initial memory data format uses escaped newlines ("\\n")
+ * - Some elements use "delay" prop, others use "time" prop
+ * - Visual elements (Text, Display, SigGen) must be filtered out
+ * 
+ * @example
+ * ```typescript
+ * const loader = new JLSLoader();
+ * const stream = fs.createReadStream('myCircuit.jls');
+ * const project = await loader.load(stream);
+ * const circuits = project.getCircuits();
+ * console.log(`Loaded ${circuits.length} circuit(s)`);
+ * ```
  */
 export class JLSLoader extends CircuitLoader {
+  /**
+   * Element types that have no functional behavior and should be ignored.
+   * These are primarily visual or testing elements from JLS.
+   */
+  private static readonly IGNORED_ELEMENTS = ["SigGen", "Text", "Display"];
+
+  /**
+   * Map of element types to their custom input/output "put" names.
+   * 
+   * Elements not in this map use the default "input1", "input2", "output1" pattern.
+   * 
+   * Format: { ElementType: [[inputPuts], [outputPuts]] }
+   */
+  private static readonly HARDCODED_ELEMENT_PINS: Record<string, [string[], string[]]> = {
+    Adder: [
+      ["A", "B", "Cin"],
+      ["S", "Cout"],
+    ],
+    TriState: [
+      ["control"],
+      [],
+    ],
+    Mux: [
+      ["select"],
+      [],
+    ],
+    Memory: [
+      ["WE", "OE", "CS", "address"],
+      [],
+    ],
+    Register: [
+      ["D", "C"],
+      ["Q", "notQ"],
+    ],
+  };
+
+  /**
+   * Wires that require specific widths regardless of element properties.
+   * Updated during wire width resolution.
+   */
+  private overrideWidths: Record<string, number> = {
+    C: 1,      // Clock signals
+    WE: 1,     // Write enable
+    OE: 1,     // Output enable
+    CS: 1,     // Chip select
+    Cin: 1,    // Carry in
+    Cout: 1,   // Carry out
+  };
+
   constructor() {
     super("JLSCircuitLoader");
   }
 
-  #expect(toBe: string | RegExp, token?: string, msg?: string): string {
-    msg ??= `Parse Error: Got token '${token}', expected ${toBe}.`;
+  /**
+   * Validate and consume an expected token.
+   * 
+   * @param expected - Expected string or regex pattern
+   * @param token - Token to validate
+   * @param msg - Optional custom error message
+   * @returns The validated token
+   * @throws Error if token doesn't match expected pattern
+   */
+  private expect(expected: string | RegExp, token?: string, msg?: string): string {
+    msg ??= `Parse Error: Got token '${token}', expected ${expected}.`;
 
-    if (
-      !token ||
-      (toBe instanceof RegExp && !toBe.test(token)) ||
-      (typeof toBe == "string" && token != toBe)
-    ) {
+    const isValid = token && (
+      (expected instanceof RegExp && expected.test(token)) ||
+      (typeof expected === "string" && token === expected)
+    );
+
+    if (!isValid) {
       this.log(LogLevel.FATAL, msg);
       throw new Error(msg);
     }
@@ -304,577 +548,743 @@ export class JLSLoader extends CircuitLoader {
     return token;
   }
 
-  #parseCircuit(project: CircuitProject, tokens: string[]): Circuit {
-    this.#expect("CIRCUIT", tokens.shift());
+  /**
+   * Parse a CIRCUIT block from the token stream.
+   * 
+   * This is the main parsing function that recursively handles nested circuits
+   * (subcircuits) and constructs the complete circuit with all elements and wiring.
+   * 
+   * @param project - Circuit project to add the parsed circuit to
+   * @param tokens - Token stream to parse from (modified in place)
+   * @returns Parsed circuit added to the project
+   */
+  private parseCircuit(project: CircuitProject, tokens: string[]): Circuit {
+    this.expect("CIRCUIT", tokens.shift());
+    const name = this.expect(/[a-zA-Z0-9]+/, tokens.shift());
 
-    const name = this.#expect(/[a-zA-Z0-9]+/, tokens.shift());
+    this.log(LogLevel.DEBUG, `Parsing circuit: ${name}`);
 
-    // These elements have no functionality for us, so we simply discard them
-    // after we parse them out of the file.
-    const ignoreElements = ["SigGen", "Text", "Display"];
+    // Parse all elements until ENDCIRCUIT
+    const parsedElements: ParsedElement[] = [];
+    while (tokens.length && tokens[0] !== "ENDCIRCUIT") {
+      const element = this.parseElement(project, tokens);
 
-    const parsedElements: {
-      type: string;
-      props: Record<string, string[]>;
-      subcircuit?: Circuit;
-    }[] = [];
-    while (tokens.length && tokens[0] != "ENDCIRCUIT") {
-      const e = this.#parseElement(project, tokens);
-      if (ignoreElements.includes(e.type)) {
-        continue;
+      // Filter out non-functional visual elements
+      if (!JLSLoader.IGNORED_ELEMENTS.includes(element.type)) {
+        parsedElements.push(element);
       }
-      parsedElements.push(e);
     }
 
-    this.#expect("ENDCIRCUIT", tokens.shift());
+    this.expect("ENDCIRCUIT", tokens.shift());
 
-    const parsedWires = parsedElements.filter((e) => e.type == "WireEnd");
-    // Elements are sorted by ID so they get a consistent index.
-    const noWires = parsedElements
-      .filter((e) => e.type != "WireEnd")
+    // Separate wires from functional elements
+    const parsedWires = parsedElements.filter((e) => e.type === "WireEnd");
+    const functionalElements = parsedElements
+      .filter((e) => e.type !== "WireEnd")
       .sort((a, b) => a.props["id"][0].localeCompare(b.props["id"][0]));
 
-    // This block creates all the wires for the circuit, excluding subcircuits.
+    this.log(
+      LogLevel.TRACE,
+      `Found ${functionalElements.length} functional element(s) and ${parsedWires.length} wire(s)`,
+    );
+
+    // Phase 1: Create all circuit buses
+    const wires = this.createWires(functionalElements, parsedWires);
+
+    // Phase 2: Connect wires together
+    this.connectWires(parsedWires, wires);
+
+    // Phase 3: Fix wire widths for special elements
+    this.fixMemoryAddressWidths(functionalElements, parsedWires, wires);
+    this.fixSplitterWidths(functionalElements, parsedWires, wires);
+    this.applyWidthOverrides(parsedWires, wires);
+
+    // Phase 4: Propagate maximum widths across connected wire groups
+    this.propagateConnectedWidths(wires);
+
+    // Phase 5: Instantiate circuit elements
+    const elements = this.instantiateElements(
+      functionalElements,
+      parsedWires,
+      wires,
+    );
+
+    // Create and register the circuit
+    const circuit = new Circuit(name, name, elements);
+    project.addCircuit(circuit);
+
+    this.log(LogLevel.INFO, `Successfully loaded circuit '${name}' with ${elements.length} element(s)`);
+
+    return circuit;
+  }
+
+  /**
+   * Create CircuitBus objects for all wires in the circuit.
+   * 
+   * Wire widths are determined from element properties, with special handling for:
+   * - Elements with explicit "bits" property
+   * - Constants (width from value)
+   * - Clocks (always 1 bit)
+   * - Subcircuits (width from pin definitions)
+   * - Splitters/Binders (variable widths)
+   * 
+   * @param elements - Functional circuit elements
+   * @param parsedWires - Wire definitions from JLS file
+   * @returns Map of wire ID to CircuitBus
+   */
+  private createWires(
+    elements: ParsedElement[],
+    parsedWires: ParsedElement[],
+  ): Record<string, CircuitBus> {
     const wires: Record<string, CircuitBus> = {};
-    for (const parsedElement of noWires) {
-      const id = parsedElement.props["id"][0];
 
+    for (const element of elements) {
+      const elementId = element.props["id"][0];
+      const elementType = element.type;
+
+      // Find all wires connected to this element
       const directConnections = parsedWires.filter((w) =>
-        (w.props["attach"] ?? []).includes(id),
+        (w.props["attach"] ?? []).includes(elementId),
       );
-      const connectedWires = this.#getWireDependencies(
-        parsedWires,
-        directConnections,
-      );
+      const connectedWires = this.getWireDependencies(parsedWires, directConnections);
 
-      let width: number;
-      let inputs: Record<string, Input> | undefined;
-      let outputs: Record<string, Output> | undefined;
-      let split: boolean = false;
+      // Determine base width for this element's wires
+      const width = this.determineElementWidth(element);
 
-      if (
-        parsedElement.props["bits"] &&
-        !["Splitter", "Binder"].includes(parsedElement.type)
-      ) {
-        width = parseInt(parsedElement.props["bits"][0]);
-      } else {
-        switch (parsedElement.type) {
-          case "Clock":
-            width = 1;
-            break;
-          case "Constant":
-            // Constants don't have a width, they just have a value. This will grab the
-            // minimum width a bus needs to be to accomodate that value.
-            const base = parseInt(parsedElement.props["base"][0]);
-            const value = parseInt(parsedElement.props["value"][0], base);
-            width = value.toString(2).length;
-            break;
-          case "Splitter":
-          case "Binder":
-            width = -1;
-            split = true;
-            break;
-          case "SubCircuit":
-            // If we don't have a width, this element is a subcircuit. We need to extract
-            // the width of the child input pin in the subcircuit to which any given wire is "put".
-            // Since we don't know what that is in advance, we use a sentinel value and also fetch the
-            // inputs and outputs, which will be used when the sentinel is matched for each connected
-            // wire in the loop below.
-            width = -1;
-            if (!parsedElement.subcircuit) {
-              throw new Error(
-                `Sanity check failed: Found a SubCircuit ELEMENT without nested CIRCUIT.`,
-              );
-            }
+      // Create buses for all connected wires
+      for (const wire of connectedWires) {
+        const wireId = wire.props["id"][0];
 
-            inputs = parsedElement.subcircuit.getInputs();
-            outputs = parsedElement.subcircuit.getOutputs();
-            break;
-          case "Stop":
-            width = 1;
-            break;
-          default:
-            throw new Error(
-              `Sanity check failed: Found element of type ${parsedElement.type} without a 'bits' property.`,
-            );
-        }
-      }
-
-      for (const connectedWire of connectedWires) {
-        if (wires[connectedWire.props["id"][0]]) {
-          if (wires[connectedWire.props["id"][0]].getWidth() != width) {
-            wires[connectedWire.props["id"][0]].setWidth(
-              Math.max(width, wires[connectedWire.props["id"][0]].getWidth()),
-            );
+        if (wires[wireId]) {
+          // Wire already exists, ensure width is at least as wide as needed
+          if (wires[wireId].getWidth() !== width) {
+            wires[wireId].setWidth(Math.max(width, wires[wireId].getWidth()));
           }
           continue;
         }
 
-        let wireWidth = width;
-        // No wire width, locate the matching wire in the subcircuit.
-        if (wireWidth == -1) {
-          // console.log(JSON.stringify(connectedWire));
+        // Determine actual wire width (may differ from element width for subcircuits/splitters)
+        const wireWidth = this.determineWireWidth(element, wire, width);
 
-          if (!connectedWire.props["put"]) {
-            // We can't create the wire using this subcircuit. It should get created
-            // another time around thanks to getWireDependencies(), which results in us processing
-            // wires lots of times.
-            continue;
-          }
-
-          const put = connectedWire.props["put"][0];
-
-          if (inputs && outputs) {
-            if (inputs[put]) {
-              wireWidth = inputs[put].getOutputs()[0].getWidth();
-            } else if (outputs[put]) {
-              wireWidth = outputs[put].getInputs()[0].getWidth();
-            } else {
-              // We can't create the wire using this subcircuit. It should get created
-              // another time around thanks to getWireDependencies(), which results in us processing
-              // wires lots of times.
-              continue;
-            }
-          }
-
-          if (split) {
-            // Determine which split this wire belongs to, and how wide it is.
-            if (["input", "output"].includes(put)) {
-              wireWidth = parseInt(parsedElement.props["bits"][0]);
-            } else {
-              // Check if put is a numeric index (new format) or a range (old format)
-              const parsedPut = put.split("-");
-              if (parsedPut.length > 1) {
-                // Old format: "11-8" means bits 11 down to 8
-                wireWidth = parseInt(parsedPut[0]) - parseInt(parsedPut[1]) + 1;
-              } else if (/^[0-9]+$/.test(put)) {
-                // New format: numeric index, look up width from pairs
-                const outputIndex = parseInt(put);
-                wireWidth = getSplitterOutputWidth(parsedElement, outputIndex);
-                this.log(
-                  LogLevel.TRACE,
-                  `New format splitter: outputIndex=${outputIndex}, wireWidth=${wireWidth}, pairs=${JSON.stringify(parsedElement.props["pair"])}`,
-                );
-              } else {
-                // Fallback for other cases (named wires)
-                wireWidth = 1;
-              }
-              this.log(
-                LogLevel.TRACE,
-                `Wire connected to splitter: put = ${put} -> ${wireWidth}`,
-              );
-            }
-          }
+        if (wireWidth === -1) {
+          // Can't determine width yet, will be created in later iteration
+          continue;
         }
 
-        wires[connectedWire.props["id"][0]] = new CircuitBus(wireWidth);
+        wires[wireId] = new CircuitBus(wireWidth);
+        this.log(LogLevel.TRACE, `Created wire ${wireId} with width ${wireWidth}`);
       }
     }
 
-    // There may be some intermediate wires left over that have yet to be instantiated
-    // because they aren't directly connected to any elements (only other wires). Locate
-    // those and instantiate them based on what they are connected to, interatively
-    // until we have connected everything.
-    //
-    // This seems like it could loop forever for malformed inputs, but any valid JLS
-    // save should work properly with this.
-    while (parsedWires.length != Object.values(wires).length) {
-      for (const parsedWire of parsedWires) {
-        const id = parsedWire.props["id"][0];
-        const connectedTo = parsedWire.props["wire"];
+    // Create any remaining intermediate wires (connected only to other wires)
+    this.createIntermediateWires(parsedWires, wires);
+
+    return wires;
+  }
+
+  /**
+   * Determine the base width for an element's connections.
+   * 
+   * @param element - Parsed element
+   * @returns Base width, or -1 if requires special handling
+   */
+  private determineElementWidth(element: ParsedElement): number {
+    // Most elements have explicit "bits" property
+    if (element.props["bits"] && !["Splitter", "Binder"].includes(element.type)) {
+      return parseInt(element.props["bits"][0]);
+    }
+
+    // Special cases
+    switch (element.type) {
+      case "Clock":
+      case "Stop":
+        return 1;
+
+      case "Constant": {
+        // Width is minimum bits needed to represent the value
+        const base = parseInt(element.props["base"][0]);
+        const value = parseInt(element.props["value"][0], base);
+        return value.toString(2).length;
+      }
+
+      case "Splitter":
+      case "Binder":
+      case "SubCircuit":
+        // These require per-wire width determination
+        return -1;
+
+      default:
+        throw new Error(
+          `Element type '${element.type}' missing 'bits' property`,
+        );
+    }
+  }
+
+  /**
+   * Determine the width of a specific wire connected to an element.
+   * 
+   * @param element - Element the wire connects to
+   * @param wire - Wire definition
+   * @param baseWidth - Element's base width
+   * @returns Wire width, or -1 if cannot be determined yet
+   */
+  private determineWireWidth(
+    element: ParsedElement,
+    wire: ParsedElement,
+    baseWidth: number,
+  ): number {
+    if (baseWidth !== -1) {
+      return baseWidth;
+    }
+
+    const putLabel = wire.props["put"]?.[0];
+    if (!putLabel) {
+      return -1; // No put label, defer to later iteration
+    }
+
+    // SubCircuit: Get width from pin definition
+    if (element.type === "SubCircuit") {
+      if (!element.subcircuit) {
+        throw new Error("SubCircuit element missing nested circuit");
+      }
+
+      const inputs = element.subcircuit.getInputs();
+      const outputs = element.subcircuit.getOutputs();
+
+      if (inputs[putLabel]) {
+        return inputs[putLabel].getOutputs()[0].getWidth();
+      } else if (outputs[putLabel]) {
+        return outputs[putLabel].getInputs()[0].getWidth();
+      }
+
+      return -1; // Pin not found, defer
+    }
+
+    // Splitter/Binder: Determine from split configuration
+    if (element.type === "Splitter" || element.type === "Binder") {
+      if (["input", "output"].includes(putLabel)) {
+        return parseInt(element.props["bits"][0]);
+      }
+
+      // Check format: old format "11-8" or new format "0", "1", etc.
+      const parsedPut = putLabel.split("-");
+      if (parsedPut.length > 1) {
+        // Old format: range notation
+        return parseInt(parsedPut[0]) - parseInt(parsedPut[1]) + 1;
+      } else if (/^[0-9]+$/.test(putLabel)) {
+        // New format: numeric index
+        const outputIndex = parseInt(putLabel);
+        return getSplitterOutputWidth(element, outputIndex);
+      }
+
+      return 1; // Fallback for named wires
+    }
+
+    return -1;
+  }
+
+  /**
+   * Create buses for intermediate wires (connected only to other wires).
+   * 
+   * Iterates until all wires are created, inferring widths from connected wires.
+   */
+  private createIntermediateWires(
+    parsedWires: ParsedElement[],
+    wires: Record<string, CircuitBus>,
+  ): void {
+    let previousCount = 0;
+
+    while (parsedWires.length !== Object.values(wires).length) {
+      const currentCount = Object.values(wires).length;
+
+      // Prevent infinite loops on malformed input
+      if (currentCount === previousCount) {
+        this.log(
+          LogLevel.WARNING,
+          `Unable to determine width for ${parsedWires.length - currentCount} wire(s)`,
+        );
+        break;
+      }
+      previousCount = currentCount;
+
+      for (const wire of parsedWires) {
+        const wireId = wire.props["id"][0];
+        if (wires[wireId]) continue;
+
+        const connectedTo = wire.props["wire"];
         for (const connectedId of connectedTo) {
           if (wires[connectedId]) {
-            wires[id] = new CircuitBus(wires[connectedId].getWidth());
+            wires[wireId] = new CircuitBus(wires[connectedId].getWidth());
+            this.log(
+              LogLevel.TRACE,
+              `Created intermediate wire ${wireId} (width ${wires[wireId].getWidth()})`,
+            );
             break;
           }
         }
       }
     }
+  }
 
-    // Now that we have all the wires, connect them together.
-    for (const parsedWire of parsedWires) {
-      const id = parsedWire.props["id"][0];
-      const attach = parsedWire.props["wire"];
+  /**
+   * Connect all wires according to their connection data.
+   * 
+   * @param parsedWires - Wire definitions
+   * @param wires - Map of wire ID to CircuitBus
+   */
+  private connectWires(
+    parsedWires: ParsedElement[],
+    wires: Record<string, CircuitBus>,
+  ): void {
+    for (const wire of parsedWires) {
+      const wireId = wire.props["id"][0];
+      const connections = wire.props["wire"];
 
-      attach.forEach((attachedWire) => {
-        wires[id].connect(wires[attachedWire]);
+      for (const connectedId of connections) {
+        wires[wireId].connect(wires[connectedId]);
         this.log(
           LogLevel.TRACE,
-          `Connecting wire: [id = ${wires[id].getId()}, width = ${wires[id].getWidth()}, JLS = ${id}] => [id = ${wires[attachedWire].getId()}, width = ${wires[attachedWire].getWidth()}, JLS = ${attachedWire}]`,
+          `Connected wire ${wireId} (width ${wires[wireId].getWidth()}) => ` +
+          `${connectedId} (width ${wires[connectedId].getWidth()})`,
         );
-      });
+      }
     }
+  }
 
-    const overrideWidths: Record<string, number> = {
-      C: 1,
-      WE: 1,
-      OE: 1,
-      CS: 1,
-      Cin: 1,
-      Cout: 1,
-    };
+  /**
+   * Fix address wire widths for memory elements.
+   * 
+   * Memory address width must be ceil(log2(capacity)) to address all locations.
+   */
+  private fixMemoryAddressWidths(
+    elements: ParsedElement[],
+    parsedWires: ParsedElement[],
+    wires: Record<string, CircuitBus>,
+  ): void {
+    const memoryElements = elements.filter((e) => e.type === "Memory");
 
-    const ramElements = noWires.filter((e) => e.type == "Memory");
-    ramElements.forEach((ram) => {
-      const addrWire = parsedWires.filter(
+    for (const memory of memoryElements) {
+      const capacity = parseInt(memory.props["cap"][0]);
+      const requiredWidth = Math.ceil(Math.log2(capacity));
+
+      // Find the address wire
+      const addressWire = parsedWires.find(
         (w) =>
-          w.props["put"] &&
-          w.props["put"][0] == "address" &&
-          w.props["attach"][0] == ram.props["id"][0],
-      )[0];
-      const capacity = parseInt(ram.props["cap"][0]);
-
-      const currentWidth = wires[addrWire.props["id"][0]].getWidth();
-      const newWidth = Math.ceil(Math.log2(capacity));
-
-      this.log(
-        LogLevel.TRACE,
-        `Found address wire: ${addrWire.props["id"][0]}. Correcting width: ${currentWidth} => ${newWidth}`,
+          w.props["put"]?.[0] === "address" &&
+          w.props["attach"]?.[0] === memory.props["id"][0],
       );
 
-      wires[addrWire.props["id"][0]].setWidth(newWidth);
-    });
+      if (addressWire) {
+        const wireId = addressWire.props["id"][0];
+        const currentWidth = wires[wireId].getWidth();
 
+        if (currentWidth !== requiredWidth) {
+          this.log(
+            LogLevel.TRACE,
+            `Fixing memory address wire ${wireId}: ${currentWidth} => ${requiredWidth} ` +
+            `(capacity=${capacity})`,
+          );
+          wires[wireId].setWidth(requiredWidth);
+        }
+      }
+    }
+  }
+
+  /**
+   * Fix widths for splitter/binder output wires.
+   * 
+   * Splitter outputs may have different widths than the element's base width.
+   */
+  private fixSplitterWidths(
+    elements: ParsedElement[],
+    parsedWires: ParsedElement[],
+    wires: Record<string, CircuitBus>,
+  ): void {
+    // Find all wires with numeric or range put labels (splitter outputs)
     const splitterWires = parsedWires.filter(
       (w) => w.props["put"] && /^[0-9]+(-[0-9]+)?$/.test(w.props["put"][0]),
     );
-    splitterWires.forEach((w) => {
-      const label = w.props["put"][0];
-      const id = w.props["id"][0];
 
-      const [s, e] = label.split("-").map((i) => parseInt(i));
+    for (const wire of splitterWires) {
+      const putLabel = wire.props["put"][0];
+      const wireId = wire.props["id"][0];
+
       let newWidth: number;
-      if (e != undefined) {
-        // Old format: range notation like "11-8"
-        newWidth = s - e + 1;
+
+      const [start, end] = putLabel.split("-").map((i) => parseInt(i));
+      if (end !== undefined) {
+        // Old format: "11-8" means bits 11 down to 8
+        newWidth = start - end + 1;
       } else {
-        // New format: numeric index, need to find the splitter element
-        const attachedElementId = w.props["attach"][0];
-        const splitterElement = noWires.find(
+        // New format: numeric index, find the splitter element
+        const attachedElementId = wire.props["attach"][0];
+        const splitterElement = elements.find(
           (el) =>
             el.props["id"][0] === attachedElementId &&
             (el.type === "Splitter" || el.type === "Binder"),
         );
+
         if (splitterElement) {
-          const outputIndex = parseInt(label);
+          const outputIndex = parseInt(putLabel);
           newWidth = getSplitterOutputWidth(splitterElement, outputIndex);
           this.log(
             LogLevel.TRACE,
-            `New format splitter/binder wire: element=${attachedElementId}, outputIndex=${outputIndex}, pairs=${JSON.stringify(splitterElement.props["pair"])}`,
+            `Splitter wire ${wireId}: outputIndex=${outputIndex}, ` +
+            `pairs=${JSON.stringify(splitterElement.props["pair"])}`,
           );
         } else {
-          // Fallback to 1 if we can't find the splitter
-          newWidth = 1;
+          newWidth = 1; // Fallback
         }
       }
-      overrideWidths[label] = newWidth;
+
+      this.overrideWidths[putLabel] = newWidth;
+
       this.log(
         LogLevel.TRACE,
-        `Found splitter/binder wire: ${w.props["id"][0]}. Computing width: ${wires[w.props["id"][0]].getWidth()} => ${newWidth}`,
+        `Fixing splitter wire ${wireId} (${putLabel}): ${wires[wireId].getWidth()} => ${newWidth}`,
       );
-    });
+    }
+  }
 
-    parsedWires.forEach((w) => {
-      if (!w.props["put"]) {
-        return;
-      }
+  /**
+   * Apply all width overrides to wires based on their put labels.
+   */
+  private applyWidthOverrides(
+    parsedWires: ParsedElement[],
+    wires: Record<string, CircuitBus>,
+  ): void {
+    for (const wire of parsedWires) {
+      const putLabel = wire.props["put"]?.[0];
+      if (!putLabel) continue;
 
-      const label = w.props["put"][0];
-      const id = w.props["id"][0];
+      const wireId = wire.props["id"][0];
+      const overrideWidth = this.overrideWidths[putLabel];
 
-      if (overrideWidths[label]) {
+      if (overrideWidth && wires[wireId].getWidth() !== overrideWidth) {
         this.log(
           LogLevel.TRACE,
-          `Updated wire [label = '${label}', id = ${id}]: ${wires[id].getWidth()} => ${overrideWidths[label]}`,
+          `Applying width override for wire ${wireId} (${putLabel}): ` +
+          `${wires[wireId].getWidth()} => ${overrideWidth}`,
         );
-        wires[id].setWidth(overrideWidths[label]);
+        wires[wireId].setWidth(overrideWidth);
       }
-    });
+    }
+  }
 
-    // Final pass: Ensure all connected wires have consistent widths by propagating
-    // the maximum width through each connected group. This fixes cases where wires
-    // are connected across subcircuits with incompatible widths.
+  /**
+   * Propagate maximum widths across all connected wire groups.
+   * 
+   * All wires in a connected group must have the same width. This ensures
+   * consistency by finding the maximum width in each group and applying it
+   * to all members.
+   */
+  private propagateConnectedWidths(wires: Record<string, CircuitBus>): void {
     const visited = new Set<string>();
-    const propagateMaxWidth = (bus: CircuitBus, maxWidth: number): number => {
+
+    const findMaxWidth = (bus: CircuitBus, currentMax: number): number => {
       const busId = bus.getId();
       if (visited.has(busId)) {
-        return maxWidth;
+        return currentMax;
       }
       visited.add(busId);
 
-      // Track the maximum width in this connected group
-      maxWidth = Math.max(maxWidth, bus.getWidth());
+      currentMax = Math.max(currentMax, bus.getWidth());
 
-      // Recursively check all connected buses
       for (const connected of bus.getConnections()) {
-        maxWidth = propagateMaxWidth(connected, maxWidth);
+        currentMax = findMaxWidth(connected, currentMax);
       }
 
-      return maxWidth;
+      return currentMax;
     };
 
-    // For each wire, find the maximum width in its connected group and apply it
     for (const wire of Object.values(wires)) {
       visited.clear();
-      const maxWidth = propagateMaxWidth(wire, 0);
+      const maxWidth = findMaxWidth(wire, 0);
+
       if (maxWidth > wire.getWidth()) {
         this.log(
           LogLevel.TRACE,
-          `Propagating max width to connected group: [id = ${wire.getId()}]: ${wire.getWidth()} => ${maxWidth}`,
+          `Propagating max width to connected group [id=${wire.getId()}]: ` +
+          `${wire.getWidth()} => ${maxWidth}`,
         );
         wire.setWidth(maxWidth);
       }
     }
+  }
 
-    // All wires are connected, now create the elements and attach them to their
-    // buses.
-    const elements: CircuitElement[] = [];
-    for (const parsedElement of noWires) {
-      const id = parsedElement.props["id"][0];
-      // Some elements store their delay in the "delay" prop, while others (memory)
-      // store their delay in the "time" prop.
+  /**
+   * Instantiate all circuit elements with their connected buses.
+   * 
+   * @param elements - Parsed functional elements
+   * @param parsedWires - Wire definitions
+   * @param wires - Map of wire ID to CircuitBus
+   * @returns Array of instantiated CircuitElement objects
+   */
+  private instantiateElements(
+    elements: ParsedElement[],
+    parsedWires: ParsedElement[],
+    wires: Record<string, CircuitBus>,
+  ): CircuitElement[] {
+    const instantiated: CircuitElement[] = [];
+
+    for (const element of elements) {
+      const elementId = element.props["id"][0];
+      const elementType = element.type;
+
+      // Get propagation delay
       const delay = parseInt(
-        (parsedElement.props["delay"] ??
-          parsedElement.props["time"] ?? ["0"])[0],
+        (element.props["delay"] ?? element.props["time"] ?? ["0"])[0],
       );
 
+      // Find all wires connected to this element
       const connectedWires = parsedWires
-        .filter((w) => (w.props["attach"] ?? []).includes(id))
-        // Sort connected wires by their put so the ordering is deterministic.
-        // Needed for "built-in" subcircuits such as the Adder.
+        .filter((w) => (w.props["attach"] ?? []).includes(elementId))
         .sort((a, b) => a.props["put"][0].localeCompare(b.props["put"][0]));
 
-      if (parsedElement.type != "SubCircuit") {
-        // JLS has some elements whose inputs and outputs have fixed names that
-        // don't match the pattern of 'inputX' and 'outputX' like we assume by
-        // default. Since each case is different, we have a map that gives us the
-        // "put" values of the inputs and outputs.
-        const hardcodedElements: Record<string, string[][]> = {
-          // Type: [Inputs, Outputs]
-          Adder: [
-            ["A", "B", "Cin"],
-            ["S", "Cout"],
-          ],
-          TriState: [["control"], []],
-          Mux: [["select"], []],
-          Memory: [["WE", "OE", "CS", "address"], []],
-          Register: [
-            ["D", "C"],
-            ["Q", "notQ"],
-          ],
-        };
-
-        let parsedInputWires: {
-          type: string;
-          props: Record<string, string[]>;
-          subcircuit?: Circuit;
-        }[] = [];
-        let parsedOutputWires: {
-          type: string;
-          props: Record<string, string[]>;
-          subcircuit?: Circuit;
-        }[] = [];
-
-        if (hardcodedElements[parsedElement.type]) {
-          // The element has custom "put" names, make sure to grab those.
-          const inPuts = hardcodedElements[parsedElement.type][0];
-          const outPuts = hardcodedElements[parsedElement.type][1];
-          parsedInputWires = connectedWires.filter((w) =>
-            inPuts.includes(w.props["put"][0]),
-          );
-          parsedOutputWires = connectedWires.filter((w) =>
-            outPuts.includes(w.props["put"][0]),
-          );
-        }
-
-        // Oh, Splitter... the pain you have caused...
-        // Why must you be so miserable to work with?
-        //
-        // This logic exists because the 'put' values for these elements is not deterministic at
-        // all. The put values are the names of the wire pairs being bound, which could probably
-        // be computed but that would be a little overkill. Instead, just grab all the wires that
-        // aren't the terminating end of the element
-        if (parsedElement.type == "Splitter") {
-          parsedOutputWires = connectedWires.filter(
-            (w) => w.props["put"][0] != "input",
-          );
-        }
-
-        if (parsedElement.type == "Binder") {
-          parsedInputWires = connectedWires.filter(
-            (w) => w.props["put"][0] != "output",
-          );
-        }
-
-        // Assume the default behavior of inputX and outputX put values. Some elements will have both
-        // hard coded puts and the default naming behavior.
-        parsedInputWires = [
-          ...parsedInputWires,
-          ...connectedWires.filter((w) =>
-            w.props["put"][0].startsWith("input"),
-          ),
-        ];
-        parsedOutputWires = [
-          ...parsedOutputWires,
-          ...connectedWires.filter((w) =>
-            w.props["put"][0].startsWith("output"),
-          ),
-        ];
-
-        // Sort inputs by their 'put'. JLS increments a number at then end of the put string which corresponds
-        // to the index that the input connects to. For elements that have custom
-        // put values, this ensures that they are provided in a deterministic order
-        // for all circuits.
-        const inputWires = parsedInputWires.sort((a, b) =>
-          a.props["put"][0].localeCompare(b.props["put"][0]),
+      if (elementType === "SubCircuit") {
+        // SubCircuits require special handling for I/O remapping
+        const instance = this.instantiateSubCircuit(
+          element,
+          connectedWires,
+          wires,
+          delay,
         );
-        const inputIds = inputWires.map((i) => i.props["id"][0]);
-        const inputs = inputIds.map((i) => wires[i]);
-
-        const outputWires = parsedOutputWires.sort((a, b) =>
-          a.props["put"][0].localeCompare(b.props["put"][0]),
-        );
-        const outputIds = outputWires.map((i) => i.props["id"][0]);
-        const outputs = outputIds.map((i) => wires[i]);
-
-        if (!createElement[parsedElement.type]) {
-          throw new Error(`Unsupported element of type: ${parsedElement.type}`);
-        }
-
-        this.log(LogLevel.TRACE, `Creating element: ${parsedElement.type}`);
-        const element = createElement[parsedElement.type](
-          parsedElement,
-          inputs,
-          outputs,
-          this,
-        );
-
-        element
-          .setLabel((parsedElement.props["name"] ?? [""])[0])
-          .setPropagationDelay(delay);
-
-        [...inputs, ...outputs].forEach((w) => {
-          w.connectElement(element);
-          this.log(LogLevel.TRACE, `  => Attach to wire: ${w.getId()}`);
-        });
-
-        // inputs.forEach((input) => input.connectElement(element));
-        // outputs.forEach((output) => output.connectElement(element));
-
-        elements.push(element);
+        instantiated.push(instance);
       } else {
-        // The element is a subcircuit. It requires special treatment to configure the connections.
-        // Unfortunately, our subcircuit design is best suited to CircuitVerse, which means it uses
-        // index-based input feeding, while JLS uses the far superior label-based feeding. This
-        // block exists solely to normalize the subcircuit's input indices to match what we pass in
-        // for the inputs array to the subcircuit element just to make sure everything works out
-        // properly.
-
-        if (!parsedElement.subcircuit) {
-          throw new Error(
-            `Sanity check failed; Subcircuit element doesn't have a CIRCUIT in it.`,
-          );
-        }
-
-        const inputs = Object.values(parsedElement.subcircuit.getInputs());
-        const outputs = Object.values(parsedElement.subcircuit.getOutputs());
-
-        let inputId = 0;
-        const inputWires: CircuitBus[] = [];
-        for (const input of inputs) {
-          input.setIndex(inputId);
-
-          // Find the wire whose "put" matches this input.
-          const putWire = connectedWires.filter((w) =>
-            w.props["put"].includes(input.getLabel()),
-          )[0].props["id"][0];
-          inputWires.push(wires[putWire]);
-
-          inputId++;
-        }
-
-        let outputId = 0;
-        const outputWires: CircuitBus[] = [];
-        for (const output of outputs) {
-          output.setIndex(outputId);
-
-          // Find the wire whose "put" matches this output.
-          const putWire = connectedWires.filter((w) =>
-            w.props["put"].includes(output.getLabel()),
-          )[0].props["id"][0];
-          outputWires.push(wires[putWire]);
-
-          outputId++;
-        }
-
-        const element = createElement[parsedElement.type](
-          parsedElement,
-          inputWires,
-          outputWires,
-          this,
+        // Regular elements
+        const instance = this.instantiateRegularElement(
+          element,
+          connectedWires,
+          wires,
+          delay,
         );
-
-        element
-          .setLabel((parsedElement.props["name"] ?? [""])[0])
-          .setPropagationDelay(delay);
-
-        // Notify the wires. This handles both the inputs and the outputs.
-        connectedWires
-          .map((w) => wires[w.props["id"][0]])
-          .forEach((w) => {
-            this.log(LogLevel.TRACE, `  => Attach to wire: ${w.getId()}`);
-            w.connectElement(element);
-          });
-        elements.push(element);
+        instantiated.push(instance);
       }
     }
 
-    // JLS circuits do not have unique IDs, so we just use the name instead.
-    const circuit = new Circuit(name, name, elements);
-    project.addCircuit(circuit);
-    return circuit;
+    return instantiated;
   }
 
-  #getWireDependencies(
-    allWires: { type: string; props: Record<string, string[]> }[],
-    wires: { type: string; props: Record<string, string[]> }[],
-  ): { type: string; props: Record<string, string[]> }[] {
-    const deps: { type: string; props: Record<string, string[]> }[] = [];
+  /**
+   * Instantiate a regular (non-subcircuit) element.
+   */
+  private instantiateRegularElement(
+    element: ParsedElement,
+    connectedWires: ParsedElement[],
+    wires: Record<string, CircuitBus>,
+    delay: number,
+  ): CircuitElement {
+    const elementType = element.type;
 
-    for (const wire of wires) {
-      const connected = allWires.filter((w) =>
-        w.props["wire"].includes(wire.props["id"][0]),
+    // Get custom put names if this element has them
+    const customPins = JLSLoader.HARDCODED_ELEMENT_PINS[elementType];
+
+    let inputWires: ParsedElement[] = [];
+    let outputWires: ParsedElement[] = [];
+
+    if (customPins) {
+      const [inputPuts, outputPuts] = customPins;
+      inputWires = connectedWires.filter((w) =>
+        inputPuts.includes(w.props["put"][0]),
       );
-      deps.push(
-        ...connected.filter((c) => !deps.includes(c) && !wires.includes(c)),
+      outputWires = connectedWires.filter((w) =>
+        outputPuts.includes(w.props["put"][0]),
       );
     }
 
-    return deps.length
-      ? this.#getWireDependencies(allWires, [...wires, ...deps])
+    // Special handling for Splitter/Binder
+    if (elementType === "Splitter") {
+      outputWires = connectedWires.filter((w) => w.props["put"][0] !== "input");
+    } else if (elementType === "Binder") {
+      inputWires = connectedWires.filter((w) => w.props["put"][0] !== "output");
+    }
+
+    // Add default input/output naming pattern
+    inputWires = [
+      ...inputWires,
+      ...connectedWires.filter((w) => w.props["put"][0].startsWith("input")),
+    ];
+    outputWires = [
+      ...outputWires,
+      ...connectedWires.filter((w) => w.props["put"][0].startsWith("output")),
+    ];
+
+    // Sort by put label for deterministic ordering
+    const sortedInputs = inputWires
+      .sort((a, b) => a.props["put"][0].localeCompare(b.props["put"][0]))
+      .map((w) => wires[w.props["id"][0]]);
+
+    const sortedOutputs = outputWires
+      .sort((a, b) => a.props["put"][0].localeCompare(b.props["put"][0]))
+      .map((w) => wires[w.props["id"][0]]);
+
+    // Create the element
+    const factory = createElement[elementType];
+    if (!factory) {
+      throw new Error(`Unsupported JLS element type: ${elementType}`);
+    }
+
+    this.log(LogLevel.TRACE, `Creating element: ${elementType}`);
+
+    const instance = factory(element, sortedInputs, sortedOutputs, this);
+    instance
+      .setLabel((element.props["name"] ?? [""])[0])
+      .setPropagationDelay(delay);
+
+    // Notify all connected buses
+    for (const bus of [...sortedInputs, ...sortedOutputs]) {
+      bus.connectElement(instance);
+      this.log(LogLevel.TRACE, `  => Attached to wire: ${bus.getId()}`);
+    }
+
+    return instance;
+  }
+
+  /**
+   * Instantiate a SubCircuit element with I/O remapping.
+   * 
+   * JLS uses label-based I/O, but our SubCircuit implementation uses indices.
+   * This method remaps the subcircuit's I/O indices to match the order of
+   * the provided wire arrays.
+   */
+  private instantiateSubCircuit(
+    element: ParsedElement,
+    connectedWires: ParsedElement[],
+    wires: Record<string, CircuitBus>,
+    delay: number,
+  ): CircuitElement {
+    if (!element.subcircuit) {
+      throw new Error("SubCircuit element missing nested circuit");
+    }
+
+    const inputs = Object.values(element.subcircuit.getInputs());
+    const outputs = Object.values(element.subcircuit.getOutputs());
+
+    // Remap input indices
+    const inputBuses: CircuitBus[] = [];
+    for (let i = 0; i < inputs.length; i++) {
+      const input = inputs[i];
+      input.setIndex(i);
+
+      // Find wire connected to this input by label
+      const wire = connectedWires.find((w) =>
+        w.props["put"].includes(input.getLabel()),
+      );
+
+      if (!wire) {
+        throw new Error(
+          `No wire found for SubCircuit input '${input.getLabel()}'`,
+        );
+      }
+
+      inputBuses.push(wires[wire.props["id"][0]]);
+    }
+
+    // Remap output indices
+    const outputBuses: CircuitBus[] = [];
+    for (let i = 0; i < outputs.length; i++) {
+      const output = outputs[i];
+      output.setIndex(i);
+
+      // Find wire connected to this output by label
+      const wire = connectedWires.find((w) =>
+        w.props["put"].includes(output.getLabel()),
+      );
+
+      if (!wire) {
+        throw new Error(
+          `No wire found for SubCircuit output '${output.getLabel()}'`,
+        );
+      }
+
+      outputBuses.push(wires[wire.props["id"][0]]);
+    }
+
+    // Create the subcircuit instance
+    const instance = createElement["SubCircuit"](
+      element,
+      inputBuses,
+      outputBuses,
+      this,
+    );
+
+    instance
+      .setLabel((element.props["name"] ?? [""])[0])
+      .setPropagationDelay(delay);
+
+    // Notify all connected buses
+    for (const wireData of connectedWires) {
+      const bus = wires[wireData.props["id"][0]];
+      bus.connectElement(instance);
+      this.log(LogLevel.TRACE, `  => Attached to wire: ${bus.getId()}`);
+    }
+
+    return instance;
+  }
+
+  /**
+   * Recursively find all wires connected to a given set of wires.
+   * 
+   * @param allWires - All wire definitions in the circuit
+   * @param wires - Starting set of wires
+   * @returns All wires in the connected group (including input wires)
+   */
+  private getWireDependencies(
+    allWires: ParsedElement[],
+    wires: ParsedElement[],
+  ): ParsedElement[] {
+    const dependencies: ParsedElement[] = [];
+
+    for (const wire of wires) {
+      const wireId = wire.props["id"][0];
+
+      // Find wires that connect to this wire
+      const connected = allWires.filter((w) =>
+        w.props["wire"].includes(wireId),
+      );
+
+      // Add new dependencies not already in our lists
+      for (const conn of connected) {
+        if (!dependencies.includes(conn) && !wires.includes(conn)) {
+          dependencies.push(conn);
+        }
+      }
+    }
+
+    // Recursively find transitive dependencies
+    return dependencies.length
+      ? this.getWireDependencies(allWires, [...wires, ...dependencies])
       : wires;
   }
 
-  #parseElement(
+  /**
+   * Parse an ELEMENT block from the token stream.
+   * 
+   * @param project - Circuit project (for nested circuits)
+   * @param tokens - Token stream
+   * @returns Parsed element with properties and optional nested circuit
+   */
+  private parseElement(
     project: CircuitProject,
     tokens: string[],
-  ): { type: string; props: Record<string, string[]>; subcircuit?: Circuit } {
-    this.#expect("ELEMENT", tokens.shift());
-
-    const elementType = this.#expect(/[a-zA-Z0-9]*/, tokens.shift());
+  ): ParsedElement {
+    this.expect("ELEMENT", tokens.shift());
+    const elementType = this.expect(/[a-zA-Z0-9]*/, tokens.shift());
 
     const properties: Record<string, string[]> = {};
-    let subcircuit;
-    while (tokens.length && tokens[0] != "END") {
-      if (tokens[0] == "CIRCUIT") {
+    let subcircuit: Circuit | undefined;
+
+    while (tokens.length && tokens[0] !== "END") {
+      if (tokens[0] === "CIRCUIT") {
         if (subcircuit) {
           throw new Error(
-            `Sanity check failed: Multiple CIRCUITs found in a Subcircuit ELEMENT.`,
+            "Parse error: Multiple CIRCUIT blocks in single ELEMENT",
           );
         }
-        subcircuit = this.#parseCircuit(project, tokens);
+        subcircuit = this.parseCircuit(project, tokens);
       } else {
-        const prop = this.#parseProperty(tokens);
+        const prop = this.parseProperty(tokens);
+
         if (!properties[prop.name]) {
           properties[prop.name] = [];
         }
@@ -882,7 +1292,8 @@ export class JLSLoader extends CircuitLoader {
       }
     }
 
-    this.#expect("END", tokens.shift());
+    this.expect("END", tokens.shift());
+
     return {
       type: elementType,
       props: properties,
@@ -890,25 +1301,41 @@ export class JLSLoader extends CircuitLoader {
     };
   }
 
-  #parseProperty(tokens: string[]): {
+  /**
+   * Parse a property declaration.
+   * 
+   * Format: `<type> <name> <value>`
+   * 
+   * Types:
+   * - int/Int: Integer value
+   * - String: Quoted string (may contain spaces)
+   * - ref: Reference to another element
+   * - probe: Debug probe reference
+   * - pair: Splitter pair (format: "name:value")
+   * 
+   * @param tokens - Token stream
+   * @returns Parsed property with type, name, and value
+   */
+  private parseProperty(tokens: string[]): {
     type: string;
     name: string;
     value: string;
   } {
-    let type = this.#expect(/([Ii]nt|String|ref|probe|pair)/, tokens.shift());
+    const type = this.expect(/([Ii]nt|String|ref|probe|pair)/, tokens.shift());
+    let name = this.expect(/[a-zA-Z0-9]*/, tokens.shift());
+    let value = this.expect(/(("?[a-zA-Z0-9]*"?)|([0-9]+))/, tokens.shift());
 
-    let name = this.#expect(/[a-zA-Z0-9]*/, tokens.shift());
-    let value = this.#expect(/(("?[a-zA-Z0-9]*"?)|([0-9]+))/, tokens.shift());
-
-    if (type == "String") {
+    // Handle multi-word strings
+    if (type === "String") {
       while (!value.endsWith('"')) {
         value += " " + tokens.shift();
       }
-
+      // Remove quotes
       value = value.split('"')[1];
     }
 
-    if (type == "pair") {
+    // Handle pair format: "pair name value" becomes name="pair", value="name:value"
+    if (type === "pair") {
       value = `${name}:${value}`;
       name = type;
     }
@@ -920,25 +1347,43 @@ export class JLSLoader extends CircuitLoader {
     };
   }
 
+  /**
+   * Load a JLS circuit file from a stream.
+   * 
+   * @param stream - Readable stream of .jls file (ZIP archive)
+   * @returns Promise resolving to complete CircuitProject
+   * @throws Error if file is malformed or contains unsupported elements
+   * 
+   * @example
+   * ```typescript
+   * const loader = new JLSLoader();
+   * const fileStream = fs.createReadStream('circuit.jls');
+   * const project = await loader.load(fileStream);
+   * console.log(`Loaded ${project.getCircuits().length} circuit(s)`);
+   * ```
+   */
   async load(stream: Stream): Promise<CircuitProject> {
     const project: CircuitProject = new CircuitProject();
     this.propagateLoggersTo(project);
 
+    // Extract JLSCircuit file from ZIP archive
     const data = await FileUtil.extractFromZip(stream, ["JLSCircuit"]).then(
-      ([stream]) => FileUtil.readTextStream(stream),
+      ([circuitStream]) => FileUtil.readTextStream(circuitStream),
     );
 
+    this.log(LogLevel.INFO, `Loading JLS circuit (${data.length} characters)`);
     this.log(LogLevel.TRACE, `JLSCircuit Data:\n${data}`);
 
-    // Tokenize the input stream. JLS circuits have an unfortunate structure, but
-    // at the very least, it is whitespace separated, so we can just chop the whole
-    // thing into words and then process them one at a time.
+    // Tokenize: split on whitespace
     const tokens: string[] = data
       .split(/[\s+]/)
       .filter((token) => token.length > 0);
 
+    this.log(LogLevel.DEBUG, `Tokenized into ${tokens.length} token(s)`);
+
+    // Parse all circuits from token stream
     while (tokens.length) {
-      this.#parseCircuit(project, tokens);
+      this.parseCircuit(project, tokens);
     }
 
     return project;
