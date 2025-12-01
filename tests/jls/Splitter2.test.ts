@@ -49,10 +49,7 @@ function genTest(input: BitString) {
     console.log(
       `Testing input of ${input.toUnsigned()} --- ${input.bitSlice(1, 2).toString()}`
     );
-
-    // Why are some of the output pins null?
-    console.log(results.outputs);
-
+    expect(results.outputs.FullOutput.toString()).toBe(input.toString());
     expect(results.outputs.Output0.toString()).toBe(
       input.bitSlice(0, 1).toString()
     );
@@ -60,17 +57,30 @@ function genTest(input: BitString) {
       input.bitSlice(1, 2).toString()
     );
     expect(results.outputs.Output3_1.toString()).toBe(
-      input.bitSlice(1, 3).toString()
+      input.bitSlice(1, 4).toString()
     );
     expect(results.outputs.Output4.toString()).toBe(
       input.bitSlice(4, 5).toString()
+    );
+    expect(results.outputs.Output2_0.toString()).toBe(
+      input.bitSlice(0, 3).toString()
+    );
+    expect(results.outputs.Output5.toString()).toBe(
+      input.bitSlice(5, 6).toString()
+    );
+    expect(results.outputs.Output7_6.toString()).toBe(
+      input.bitSlice(6, 8).toString()
+    );
+    expect(results.outputs.Output3.toString()).toBe(
+      input.bitSlice(3, 4).toString()
     );
   };
 }
 
 let input = BitString.low(8);
 
-test(`By hand`, genTest(new BitString("10100101")));
+// test(`By hand`, genTest(new BitString("10100101")));
+test(`By hand`, genTest(new BitString("00000001")));
 
 /*
 while (true) {
