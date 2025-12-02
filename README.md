@@ -17,6 +17,16 @@
 - **Simple:** Willow uses a simple event loop to evaluate circuits. It avoids overly complex algorithms and performance optimizations so as to allow users to more easily understand and modify it. The relative simplicity compared to other circuit simulators is intended to lower the barrier to entry and allow students to not only simulate/test their own circuits, but also understand how circuit simulators can be implemented.
 - **Robust Logging:** The custom logging facility is as extensible as the rest of the engine. It allows users and developers to inspect just about any part of the engine as a circuit runs, which can be helpful in debugging either the engine itself or circuits running it it. Logs are extremely granular, with log levels and subsystem tags, providing the ability to drill down and see logs for only a certain part of the system, or capture everything all at once.
 - **Well-Documented TypeScript:** Willow is written fully in TypeScript, making it easier to use because the type system can catch common errors and mistakes. Furthermore, Willow is extremely well-documented, including full API documentation and sample code.
+- **Multi-Format Support:** Load circuits from CircuitVerse, JLS, LogiSim, and Nand2Tetris HDL, all using the same testing interface.
+
+## Supported Simulators
+
+| Simulator | File Format | Supported | Notes |
+|-----------|------------|-----------|-------|
+| CircuitVerse | `.cv` | ✅ Full | Web-based visual simulator |
+| JLS | `.jls` | ✅ Full | Educational logic simulator |
+| LogiSim | `.circ` | ✅ Full | Free, cross-platform logic simulator |
+| Nand2Tetris | `.hdl` | ✅ Full* | Hardware Description Language; *no bit slice syntax yet |
 
 ## Getting Started / First Example
 
@@ -70,31 +80,27 @@ Willow provides template repositories that you can clone to simplify project set
 
 For example, to use Jest and plain JavaScript, you can simply `git clone` or download this template:
 
-!!! **Verify new template repo name** !!!
-
 ```
 $ git clone https://github.com/willow-dls/example-js.git
-$ cd example
+$ cd example-js
 $ npm install
 ```
 
 These commands will automatically install the necessary dependencies. At this point you need only add your circuits and tests.
 
-## Using Typescript
+## Using TypeScript
 
-If you prefer to write your unit tests in Typescript, simply `git clone` or download this template:
-
-!!! **Verify new template repo name** !!!
+If you prefer to write your unit tests in TypeScript, simply `git clone` or download this template:
 
 ```
 $ git clone https://github.com/willow-dls/example-ts.git
-$ cd example
+$ cd example-ts
 $ npm install
 ```
 
-This template also contains the configuration files for Typescript and Babel.
+This template also contains the configuration files for TypeScript and Babel.
 
-If you prefer to configure your package manually, see [Manual Typescript Configuration](#manual-typescript-configuration) below
+If you prefer to configure your package manually, see [Manual TypeScript Configuration](#manual-typescript-configuration) below
 
 ## Writing Unit Tests
 
@@ -119,7 +125,7 @@ test("Sample Test", () => {
     inputB: "10",
   });
 
-  expect(result.outputs.outputC).toBe("11");
+  expect(result.outputs.outputC.toString()).toBe("11");
 });
 ```
 
@@ -145,7 +151,7 @@ test("Sample Test", () => {
     InputB: "1010",
   });
 
-  expect(result.outputs.OutputC).toBe("1111");
+  expect(result.outputs.OutputC.toString()).toBe("1111");
 });
 ```
 
@@ -171,15 +177,17 @@ test("Sample Test", () => {
     B: "0101",
   });
 
-  expect(result.outputs.C).toBe("1000");
+  expect(result.outputs.C.toString()).toBe("1000");
 });
 ```
 
 ### Nand2Tetris (.hdl files)
 
-For Nand2Tetris circuits that reference other chips, you can use either a working directory approach or a custom resolver:
+Nand2Tetris circuits are written in HDL (Hardware Description Language). Willow can load and execute these circuits, with support for subcircuit dependencies.
 
 #### Option 1: Working Directory (Recommended)
+
+If all your `.hdl` files are in the same directory, use the working directory approach:
 
 ```typescript
 import { expect, beforeAll, test } from "@jest/globals";
@@ -188,29 +196,42 @@ import { loadCircuit, Nand2TetrisLoader } from "@willow-dls/core";
 let circuit;
 
 beforeAll(async () => {
-  // Place all .hdl files in the same directory
+  // Load the circuit. All referenced subcircuits should be in the same directory.
   circuit = await loadCircuit(
     Nand2TetrisLoader,
     "chips/FullAdder.hdl",
     "FullAdder",
     undefined, // no logger
-    "chips"    // working directory for subcircuits
+    "chips"    // working directory for finding subcircuits
   );
 });
 
-test("FullAdder Test", () => {
+test("FullAdder adds 1 + 1 + 1", () => {
   const result = circuit.run({
     a: "1",
     b: "1",
     c: "1",
   });
 
-  expect(result.outputs.sum).toBe("1");
-  expect(result.outputs.carry).toBe("1");
+  expect(result.outputs.sum.toString()).toBe("1");
+  expect(result.outputs.carry.toString()).toBe("1");
+});
+
+test("FullAdder adds 1 + 0 + 0", () => {
+  const result = circuit.run({
+    a: "1",
+    b: "0",
+    c: "0",
+  });
+
+  expect(result.outputs.sum.toString()).toBe("1");
+  expect(result.outputs.carry.toString()).toBe("0");
 });
 ```
 
 #### Option 2: Custom Resolver
+
+For more control over where subcircuits are loaded from, provide a custom resolver function:
 
 ```typescript
 import { expect, beforeAll, test } from "@jest/globals";
@@ -229,6 +250,7 @@ beforeAll(async () => {
     if (fs.existsSync(hdlPath)) {
       return fs.createReadStream(hdlPath);
     }
+    // Return null if chip not found - loader will throw an appropriate error
     return null;
   };
 
@@ -245,19 +267,60 @@ test("FullAdder Test", () => {
     c: "1",
   });
 
-  expect(result.outputs.sum).toBe("1");
-  expect(result.outputs.carry).toBe("1");
+  expect(result.outputs.sum.toString()).toBe("1");
+  expect(result.outputs.carry.toString()).toBe("1");
 });
 ```
 
-> [!NOTE]
-> **Important Notes:**
-> - All inputs and outputs must have unique labels assigned in the circuit editor
-> - Input/output values can be BitString objects or strings of "0"s and "1"s
-> - The circuit name parameter must match the circuit name defined in the file
-> - Nand2Tetris circuits using bit slice syntax (e.g., `in[0]`, `out[15]`) are not yet supported
+#### Example Nand2Tetris HDL
 
-## Manual Typescript Configuration
+Here's an example of what a Nand2Tetris HDL file looks like:
+
+```hdl
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+
+CHIP FullAdder {
+    IN a, b, c;
+    OUT sum, carry;
+    
+    PARTS:
+    HalfAdder(a=a, b=b, sum=ab, carry=c1);
+    HalfAdder(a=ab, b=c, sum=sum, carry=c2);
+    Or(a=c1, b=c2, out=carry);
+}
+```
+
+#### Nand2Tetris Limitations and Notes
+
+- **Bit Slice Syntax Not Supported:** Circuits using array indexing like `in[0]`, `out[15]`, or `sel[0]` will not load correctly. These are on the roadmap for future versions.
+- **Builtin Chips:** The following builtin chips are supported:
+  - Basic gates: `Nand`, `Not`, `And`, `Or`, `Xor`
+  - Multiplexers: `Mux`, `DMux` (1-bit versions)
+  - Multi-bit variants of the above
+- **Subcircuit Resolution:** Willow automatically resolves and loads subcircuits. Make sure all referenced chips are available in the working directory or resolvable by your custom resolver.
+
+#### Testing Nand2Tetris Circuits
+
+When testing Nand2Tetris circuits, remember:
+- Input/output names are case-sensitive and must match the HDL definition
+- Single-bit inputs/outputs should use `"0"` or `"1"` as strings
+- Multi-bit buses should use binary strings like `"0101"` (with the leftmost bit as the most significant)
+
+Example multi-bit test:
+```typescript
+test("Add16 adds two 16-bit numbers", () => {
+  const result = circuit.run({
+    a: "0000000000000101", // 5 in 16 bits
+    b: "0000000000000011", // 3 in 16 bits
+  });
+
+  expect(result.outputs.out.toString()).toBe("0000000000001000"); // 8 in 16 bits
+});
+```
+
+## Manual TypeScript Configuration
 
 If you prefer to manually install and configure Jest and TypeScript:
 
@@ -312,7 +375,7 @@ module.exports = {
 ```
 
 > [!NOTE]
-> We are using the CommonJS module syntax for our Babel configuration for compatibility with Windows&mdash;for some reason our Windows developer could not get the ESM syntax to work. However, Willow uses the ESM module syntax for all of the code and is published as an ESM module.
+> We are using the CommonJS module syntax for our Babel configuration for compatibility with Windows—for some reason our Windows developer could not get the ESM syntax to work. However, Willow uses the ESM module syntax for all of the code and is published as an ESM module.
 
 #### Step 2: Export Your Circuits
 
@@ -382,7 +445,7 @@ test("Sample Test", () => {
   // expect(result.propagationDelay).toBe(10);
 
   // Compare the actual results to the expected results.
-  expect(result.outputs).toStrictEqual(exectedOutputs);
+  expect(result.outputs).toStrictEqual(expectedOutputs);
 });
 ```
 
