@@ -62,10 +62,8 @@ function genTest(input: BitString) {
     expect(results.outputs.Output4.toString()).toBe(
       input.bitSlice(4, 5).toString()
     );
-    // Note: Output2_0 extracts bits {0, 1, 2} in that order, producing reversed output
-    // compared to bitSlice which returns {2, 1, 0} order
     expect(results.outputs.Output2_0.toString()).toBe(
-      input.bitSlice(0, 3).toString().split('').reverse().join('')
+      input.bitSlice(0, 3).toString()
     );
     expect(results.outputs.Output5.toString()).toBe(
       input.bitSlice(5, 6).toString()
@@ -81,8 +79,13 @@ function genTest(input: BitString) {
 
 let input = BitString.low(8);
 
-// test(`By hand`, genTest(new BitString("10100101")));
-test(`By hand`, genTest(new BitString("00000001")));
+// Test with various input values to verify bit ordering is correct
+test(`Splitter2: 00000001`, genTest(new BitString("00000001")));
+test(`Splitter2: 10100101`, genTest(new BitString("10100101")));
+test(`Splitter2: 11111111`, genTest(new BitString("11111111")));
+test(`Splitter2: 10000000`, genTest(new BitString("10000000")));
+test(`Splitter2: 01010101`, genTest(new BitString("01010101")));
+test(`Splitter2: 00110011`, genTest(new BitString("00110011")));
 
 /*
 while (true) {
