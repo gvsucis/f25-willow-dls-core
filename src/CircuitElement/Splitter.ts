@@ -107,8 +107,10 @@ export class Splitter extends CircuitElement {
         // bitIndices contain logical bit positions (0 = LSB, 7 = MSB)
         // but BitString.substring uses string indices (0 = MSB, 7 = LSB)
         // so we need to convert: stringIndex = inputWidth - 1 - bitIndex
+        // We iterate in reverse order to match the extraction order in #propOut
         let expectedValue = "";
-        for (const bitIndex of bitIndices) {
+        for (let j = bitIndices.length - 1; j >= 0; j--) {
+          const bitIndex = bitIndices[j];
           const stringIndex = inputWidth - 1 - bitIndex;
           expectedValue += input.substring(stringIndex, stringIndex + 1).toString();
         }
@@ -152,8 +154,10 @@ export class Splitter extends CircuitElement {
         // bitIndices contain logical bit positions (0 = LSB, 7 = MSB)
         // but BitString.substring uses string indices (0 = MSB, 7 = LSB)
         // so we need to convert: stringIndex = inputWidth - 1 - bitIndex
+        // We iterate in reverse order so that higher bit indices appear first in the output string
         let value = "";
-        for (const bitIndex of bitIndices) {
+        for (let j = bitIndices.length - 1; j >= 0; j--) {
+          const bitIndex = bitIndices[j];
           const stringIndex = inputWidth - 1 - bitIndex;
           value += input.substring(stringIndex, stringIndex + 1).toString();
         }
@@ -229,9 +233,10 @@ export class Splitter extends CircuitElement {
         }
 
         // Map each bit from the output to its position in the input
+        // The output string is in reverse order (highest bit index first) to match #propOut
         const valStr = val.toString();
         for (let j = 0; j < bitIndices.length; j++) {
-          const bitIndex = bitIndices[j];
+          const bitIndex = bitIndices[bitIndices.length - 1 - j];
           const bitValue = valStr[j];
 
           if (inputBits[bitIndex] !== null && inputBits[bitIndex] !== bitValue) {
