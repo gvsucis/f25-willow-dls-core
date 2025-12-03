@@ -301,12 +301,13 @@ CHIP FullAdder {
   - Multi-bit variants of the above
 - **Subcircuit Resolution:** Willow automatically resolves and loads subcircuits. Make sure all referenced chips are available in the working directory or resolvable by your custom resolver.
 
-#### Testing Nand2Tetris Circuits
-
-When testing Nand2Tetris circuits, remember:
-- Input/output names are case-sensitive and must match the HDL definition
-- Single-bit inputs/outputs should use `"0"` or `"1"` as strings
-- Multi-bit buses should use binary strings like `"0101"` (with the leftmost bit as the most significant)
+> [!NOTE]
+> **Important Notes:**
+> - All inputs and outputs must have unique labels assigned in the circuit editor
+> - Input/output values can be BitString objects or strings of "0"s and "1"s
+> - The circuit name parameter must match the circuit name defined in the file
+> - Multi-bit buses should use binary strings like `"0101"` (with the leftmost bit as the most significant)
+> - Nand2Tetris circuits using bit slice syntax (e.g., `in[0]`, `out[15]`) are not yet supported
 
 Example multi-bit test:
 ```typescript
