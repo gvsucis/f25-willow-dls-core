@@ -46,7 +46,6 @@ function genTest(input: BitString) {
       InputA: input,
     });
 
-    // expect(results.outputs.FullOutput.toString()).toBe(input.toString());
     expect(results.outputs.Output0.toString()).toBe(
       input.bitSlice(0, 1).toString()
     );
@@ -77,22 +76,11 @@ function genTest(input: BitString) {
 let input = BitString.low(8);
 
 // Test with various input values to verify bit ordering is correct
-test(`Splitter2: 00000001`, genTest(new BitString("00000001")));
-test(`Splitter2: 10100101`, genTest(new BitString("10100101")));
-test(`Splitter2: 11111111`, genTest(new BitString("11111111")));
-test(`Splitter2: 10000000`, genTest(new BitString("10000000")));
-test(`Splitter2: 01010101`, genTest(new BitString("01010101")));
-test(`Splitter2: 00110011`, genTest(new BitString("00110011")));
-
-/*
 while (true) {
   test(`Splitter: ${input}`, genTest(input));
   input = input.add("00000001");
   // Overflow
-  // if (input.toString() == "00000000") {
-  if (input.toString() == "00001111") {
+  if (input.toString() == "00000000") {
     break;
   }
-  
 }
-*/
