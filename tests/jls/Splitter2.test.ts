@@ -46,9 +46,6 @@ function genTest(input: BitString) {
       InputA: input,
     });
 
-    console.log(
-      `Testing input of ${input.toUnsigned()} --- ${input.bitSlice(1, 2).toString()}`
-    );
     // expect(results.outputs.FullOutput.toString()).toBe(input.toString());
     expect(results.outputs.Output0.toString()).toBe(
       input.bitSlice(0, 1).toString()
