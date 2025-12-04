@@ -294,11 +294,9 @@ CHIP FullAdder {
 
 #### Nand2Tetris Limitations and Notes
 
-- **Bit Slice Syntax Not Supported:** Circuits using array indexing like `in[0]`, `out[15]`, or `sel[0]` will not load correctly. These are on the roadmap for future versions.
-- **Builtin Chips:** The following builtin chips are supported:
-  - Basic gates: `Nand`, `Not`, `And`, `Or`, `Xor`
-  - Multiplexers: `Mux`, `DMux` (1-bit versions)
-  - Multi-bit variants of the above
+- **Bit Slice Syntax Not Supported:** Circuits using array indexing like `in[0]`, `out[15]`, or `sel[0]` will not load correctly.
+- **Builtin Chips:** The following built-in chips are supported:
+  - 8way16 mux and dmux aswell as the 4way16 mux
 - **Subcircuit Resolution:** Willow automatically resolves and loads subcircuits. Make sure all referenced chips are available in the working directory or resolvable by your custom resolver.
 
 > [!NOTE]
