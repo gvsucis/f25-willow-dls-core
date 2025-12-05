@@ -1029,7 +1029,7 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
             `[N2TLoader] attachSliceElements: bitSlices=${this.bitSlices.length}, ` +
             `rangeSlices=${this.rangeSlices.length}, existingElements=${elements.length}`,
         );
-        
+
         console.log(
             `[N2TLoader]   bitSlice specs=`,
             this.bitSlices.map(s => `${s.baseName}[${s.bitIndex}]`),
@@ -1040,7 +1040,17 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
             this.rangeSlices.map(s => `${s.baseName}[${s.lo}..${s.hi}]`),
         );
 
-        for (const spec of this.bitSlices){
+        // Deduplicate bitSlices by sliceName to avoid multiple elements driving the same bus
+        const uniqueBitSlices = Array.from(
+            new Map(this.bitSlices.map(s => [s.sliceName, s])).values()
+        );
+
+        console.log(
+            `[N2TLoader]   Unique bitSlice specs (after deduplication)=`,
+            uniqueBitSlices.map(s => `${s.baseName}[${s.bitIndex}]`),
+        );
+
+        for (const spec of uniqueBitSlices){
             const base = busses[spec.baseName];
             const slice = busses[spec.sliceName];
 
@@ -1056,8 +1066,18 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
 
             elements.push( new BitSliceElement(base, spec.bitIndex, slice));
         }
-        
-        for (const spec of this.rangeSlices) {
+
+        // Deduplicate rangeSlices by rangeName to avoid multiple elements driving the same bus
+        const uniqueRangeSlices = Array.from(
+            new Map(this.rangeSlices.map(s => [s.rangeName, s])).values()
+        );
+
+        console.log(
+            `[N2TLoader]   Unique rangeSlice specs (after deduplication)=`,
+            uniqueRangeSlices.map(s => `${s.baseName}[${s.lo}..${s.hi}]`),
+        );
+
+        for (const spec of uniqueRangeSlices) {
             const base = busses[spec.baseName];
             const range = busses[spec.rangeName];
             if (!base || !range){
@@ -1171,8 +1191,18 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
             ),
         );
 
+        // Deduplicate bitMerges by a composite key (sliceName + baseName + bitIndex) to avoid duplicate merge elements
+        const uniqueBitMerges = Array.from(
+            new Map(this.bitMerges.map(s => [`${s.sliceName}_${s.baseName}_${s.bitIndex}`, s])).values()
+        );
+
+        console.log(
+            `[N2TLoader]   Unique bitMerge specs (after deduplication)=`,
+            uniqueBitMerges.map((s) => `${s.sliceName} -> ${s.baseName}[${s.bitIndex}]`),
+        );
+
         // Single-bit merges
-        for (const spec of this.bitMerges) {
+        for (const spec of uniqueBitMerges) {
             const base = busses[spec.baseName];
             const slice = busses[spec.sliceName];
 
@@ -1193,8 +1223,20 @@ export class Nand2TetrisLoader extends CircuitLoader implements CircuitLoggable 
             elements.push(new BitMergeElement(slice, base, spec.bitIndex));
         }
 
+        // Deduplicate rangeMerges by a composite key to avoid duplicate merge elements
+        const uniqueRangeMerges = Array.from(
+            new Map(this.rangeMerges.map(s => [`${s.rangeName}_${s.baseName}_${s.lo}_${s.hi}`, s])).values()
+        );
+
+        console.log(
+            `[N2TLoader]   Unique rangeMerge specs (after deduplication)=`,
+            uniqueRangeMerges.map(
+                (s) => `${s.rangeName} -> ${s.baseName}[${s.lo}..${s.hi}]`,
+            ),
+        );
+
         // Range merges
-        for (const spec of this.rangeMerges) {
+        for (const spec of uniqueRangeMerges) {
             const base = busses[spec.baseName];
             const range = busses[spec.rangeName];
 

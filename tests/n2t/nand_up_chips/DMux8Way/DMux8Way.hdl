@@ -2,17 +2,5 @@ CHIP DMux8Way {
     IN  in, sel[3];
     OUT a, b, c, d, e, f, g, h;
 
-    PARTS:
-    // First stage: split into upper (a–d) and lower (e–h) halves
-    DMux(in=in, sel=sel[2], a=upper, b=lower);
-
-    // Second stage: split each half into two quarters (a–b, c–d) and (e–f, g–h)
-    DMux(in=upper, sel=sel[1], a=upperLeft,  b=upperRight);
-    DMux(in=lower, sel=sel[1], a=lowerLeft,  b=lowerRight);
-
-    // Third stage: split each quarter into two outputs using sel[0]
-    DMux(in=upperLeft,  sel=sel[0], a=a, b=b);
-    DMux(in=upperRight, sel=sel[0], a=c, b=d);
-    DMux(in=lowerLeft,  sel=sel[0], a=e, b=f);
-    DMux(in=lowerRight, sel=sel[0], a=g, b=h);
+    BUILTIN DMux8Way;
 }

@@ -7,17 +7,8 @@ import path from "path";
 let circuit: Circuit;
 
 beforeAll(async () => {
-  // Create a resolver that can find HDL files in the same directory
-  const baseDir = "tests/n2t/nand_up_chips";
-  const resolver = async (chipName: string) => {
-    const hdlPath = path.join(baseDir, `${chipName}.hdl`);
-    if (fs.existsSync(hdlPath)) {
-      return fs.createReadStream(hdlPath);
-    }
-    return null;
-  };
-
-  const loader = new Nand2TetrisLoader(resolver);
+  const baseDir = "tests/n2t/nand_up_chips/FullAdder";
+  const loader = new Nand2TetrisLoader(baseDir);
   const stream = fs.createReadStream("tests/n2t/nand_up_chips/FullAdder/FullAdder.hdl");
   const project = await loader.load(stream);
   circuit = project.getCircuitByName("FullAdder");
