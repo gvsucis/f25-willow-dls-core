@@ -860,9 +860,72 @@ export class JLSLoader extends CircuitLoader {
         // to the index that the input connects to. For elements that have custom
         // put values, this ensures that they are provided in a deterministic order
         // for all circuits.
-        const inputWires = parsedInputWires.sort((a, b) =>
-          a.props["put"][0].localeCompare(b.props["put"][0]),
-        );
+        // For Binders with old-format bit mappings, we need special ordering logic (same as for Splitter outputs)
+        const inputWires = (() => {
+          if (parsedElement.type !== "Binder") {
+            return parsedInputWires.sort((a, b) =>
+              a.props["put"][0].localeCompare(b.props["put"][0]),
+            );
+          }
+
+          // Binder-specific input ordering (mirrors Splitter output ordering logic)
+          const bitMappings = genBitMappings(parsedElement);
+          if (!bitMappings) {
+            // New format: numeric labels map directly to port indices
+            return parsedInputWires.sort((a, b) => {
+              const numA = parseInt(a.props["put"][0]);
+              const numB = parseInt(b.props["put"][0]);
+              return numA - numB;
+            });
+          }
+
+          // Old format: map each wire label to its port index
+          const labelToPortIndex: Record<string, number> = {};
+
+          parsedInputWires.forEach(w => {
+            const label = w.props["put"][0];
+
+            if (/^\d+$/.test(label)) {
+              // Numeric label: represents a single bit, find port that extracts only that bit
+              const bitIndex = parseInt(label);
+              for (let portIdx = 0; portIdx < bitMappings.length; portIdx++) {
+                const portBits = bitMappings[portIdx];
+                if (portBits.length === 1 && portBits[0] === bitIndex) {
+                  labelToPortIndex[label] = portIdx;
+                  break;
+                }
+              }
+            } else if (/-/.test(label) || /_/.test(label)) {
+              // Range label "X-Y" or "X_Y": find port that extracts bits [Y..X]
+              // Support both hyphen and underscore as separators
+              const separator = /-/.test(label) ? "-" : "_";
+              const [high, low] = label.split(separator).map(n => parseInt(n));
+              const expectedBits: number[] = [];
+              for (let bit = low; bit <= high; bit++) {
+                expectedBits.push(bit);
+              }
+
+              // Find matching port by comparing bit arrays
+              for (let portIdx = 0; portIdx < bitMappings.length; portIdx++) {
+                const portBits = bitMappings[portIdx].slice().sort((a, b) => a - b);
+                if (portBits.length === expectedBits.length &&
+                    portBits.every((bit, idx) => bit === expectedBits[idx])) {
+                  labelToPortIndex[label] = portIdx;
+                  break;
+                }
+              }
+            }
+          });
+
+          // Sort wires by their port index
+          return parsedInputWires.sort((a, b) => {
+            const labelA = a.props["put"][0];
+            const labelB = b.props["put"][0];
+            const indexA = labelToPortIndex[labelA] ?? 999;
+            const indexB = labelToPortIndex[labelB] ?? 999;
+            return indexA - indexB;
+          });
+        })();
         const inputIds = inputWires.map((i) => i.props["id"][0]);
         const inputs = inputIds.map((i) => wires[i]);
 
