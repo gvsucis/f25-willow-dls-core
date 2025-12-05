@@ -7,20 +7,20 @@ let circuit: Circuit;
 beforeAll(async () => {
   circuit = await loadCircuit(
     Nand2TetrisLoader,
-    "tests/n2t/nand_up_chips/DMux4Way.hdl",
+    "tests/n2t/nand_up_chips/DMux4Way/DMux4Way.hdl",
     "DMux4Way",
   );
 });
 
 const truthTable = [
-  ["000", "1000"],
-  ["001", "0100"],
-  ["010", "0010"],
-  ["011", "0001"],
-  ["100", "0000"],
-  ["101", "0000"],
-  ["110", "0000"],
-  ["111", "0000"],
+  ["000", "0000"], // in=0 sel=00
+  ["001", "0000"], // in=0 sel=01
+  ["010", "0000"], // in=0 sel=10
+  ["011", "0000"], // in=0 sel=11
+  ["100", "1000"], // in=1 sel=00
+  ["101", "0100"], // in=1 sel=01
+  ["110", "0010"], // in=1 sel=10
+  ["111", "0001"], // in=1 sel=11
 ];
 
 function genTest(

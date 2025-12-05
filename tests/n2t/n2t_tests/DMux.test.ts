@@ -7,15 +7,15 @@ let circuit: Circuit;
 beforeAll(async () => {
   circuit = await loadCircuit(
     Nand2TetrisLoader,
-    "tests/n2t/nand_up_chips/Dmux.hdl",
+    "tests/n2t/nand_up_chips/Dmux/Dmux.hdl",
     "DMux",
   );
 });
 
 const truthTable = [
   ["00", "00"],
-  ["01", "10"],
-  ["10", "00"],
+  ["01", "00"],
+  ["10", "10"],
   ["11", "01"],
 ];
 

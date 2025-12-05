@@ -36,7 +36,7 @@ beforeAll(async () => {
 
   circuit = await loadCircuit(
     Nand2TetrisLoader,
-    "tests/n2t/nand_up_chips/HalfAdder.hdl",
+    "tests/n2t/nand_up_chips/HalfAdder/HalfAdder.hdl",
     "HalfAdder",
     // logger,
   );
