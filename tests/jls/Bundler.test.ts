@@ -43,11 +43,11 @@ beforeAll(async () => {
 function genTest(output: BitString) {
   return () => {
     const results = circuit.run({
-      InputA0: new BitString(output.toString().substring(0, 1)),
-      InputA1_2: new BitString(output.toString().substring(1, 3)),
-      InputA3: new BitString(output.toString().substring(3, 4)),
-      InputA4: new BitString(output.toString().substring(4, 5)),
-      InputA5_7: new BitString(output.toString().substring(5, 8)),
+      InputA0: output.bitSlice(0, 1),
+      InputA1_2: output.bitSlice(1, 3),
+      InputA3: output.bitSlice(3, 4),
+      InputA4: output.bitSlice(4, 5),
+      InputA5_7: output.bitSlice(5, 8),
     });
 
     expect(results.outputs.OutputA.toString()).toBe(output.toString());
