@@ -50,16 +50,36 @@ export class FileUtil {
     paths: Record<string, Stream>,
   ): Promise<void> {
     return new Promise((resolve, reject) => {
+      const streamEndPromises: Promise<void>[] = [];
+
       stream
         .pipe(unzip.Parse())
         .on("entry", (entry) => {
           if (paths[entry.path] !== undefined) {
-            entry.pipe(paths[entry.path]);
+            const targetStream = paths[entry.path];
+
+            // Create a promise that resolves when the target stream finishes receiving data
+            const streamEndPromise = new Promise<void>((resolveStream) => {
+              entry.on("end", () => {
+                // End the target stream so readers know there's no more data
+                if (typeof (targetStream as any).end === 'function') {
+                  (targetStream as any).end();
+                }
+                resolveStream();
+              });
+            });
+
+            streamEndPromises.push(streamEndPromise);
+            entry.pipe(targetStream, { end: false }); // Don't auto-end, we'll do it manually
           } else {
             entry.autodrain();
           }
         })
-        .on("finish", () => resolve())
+        .on("finish", async () => {
+          // Wait for all piped streams to finish receiving data
+          await Promise.all(streamEndPromises);
+          resolve();
+        })
         .on("error", (err) => reject(err));
     });
   }

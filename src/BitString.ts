@@ -70,7 +70,7 @@ function hexToBinary(str: string): BinaryString {
 
 function forBit(
   str: string,
-  func: (b: string, i: number) => string,
+  func: (b: string, i: number) => string
 ): BinaryString {
   const result = str.split("").map(func).join("");
 
@@ -139,7 +139,7 @@ export class BitString {
         .repeat(width)
         .split("")
         .map((c) => (Math.random() < 0.5 ? "1" : "0"))
-        .join(""),
+        .join("")
     );
   }
 
@@ -207,7 +207,7 @@ export class BitString {
 
     if (str.getWidth() != this.getWidth()) {
       throw new Error(
-        `Cannot ADD bit strings: width mismatch: ${str.getWidth()} != ${this.getWidth()}`,
+        `Cannot ADD bit strings: width mismatch: ${str.getWidth()} != ${this.getWidth()}`
       );
     }
 
@@ -250,14 +250,14 @@ export class BitString {
 
     if (str.getWidth() != this.getWidth()) {
       throw new Error(
-        `Cannot AND bit strings: width mismatch: ${str.getWidth()} != ${this.getWidth()}`,
+        `Cannot AND bit strings: width mismatch: ${str.getWidth()} != ${this.getWidth()}`
       );
     }
 
     return new BitString(
       forBit(str.toString(), (_, i) =>
-        str.#str[i] == "1" && this.#str[i] == "1" ? "1" : "0",
-      ),
+        str.#str[i] == "1" && this.#str[i] == "1" ? "1" : "0"
+      )
     );
   }
 
@@ -274,14 +274,14 @@ export class BitString {
 
     if (str.getWidth() != this.getWidth()) {
       throw new Error(
-        `Cannot OR bit strings: width mismatch: ${str.getWidth()} != ${this.getWidth()}`,
+        `Cannot OR bit strings: width mismatch: ${str.getWidth()} != ${this.getWidth()}`
       );
     }
 
     return new BitString(
       forBit(str.toString(), (_, i) =>
-        str.#str[i] == "1" || this.#str[i] == "1" ? "1" : "0",
-      ),
+        str.#str[i] == "1" || this.#str[i] == "1" ? "1" : "0"
+      )
     );
   }
 
@@ -369,7 +369,7 @@ export class BitString {
     } else {
       // TODO: Support arbitrary radices.
       throw new Error(
-        `Unsupported radix: ${radix}. Only 2 and 16 are supported.`,
+        `Unsupported radix: ${radix}. Only 2 and 16 are supported.`
       );
     }
   }
@@ -547,10 +547,32 @@ export class BitString {
   }
 
   /**
+   * Return a slice of a bit string using logical positions as opposed to string indexes.
+   * (Notice that the most significant bit is stored at string index 0, rather than the
+   * least significant bit.)
+   * @param start starting logical bit position (position 0 is the least significant bit)
+   * @param end  ending logical bit position (exclusive)
+   * @returns a new BitString representing the requested slice of this one.
+   */
+  bitSlice(start: number, end?: number): BitString {
+    const len = this.#str.length;
+
+    // Default end to full length (like substring)
+    const e = end ?? len;
+
+    // Convert logical bit positions (LSB = 0) to actual string indices (MSB = 0).
+    const actualStart = len - e; // corresponds to logical 'end'
+    const actualEnd = len - start; // corresponds to logical 'start'
+
+    const slice = this.#str.substring(actualStart, actualEnd);
+    return new BitString(slice);
+  }
+
+  /**
    * A shortcut for {@link truncate} that extracts the `n` most significant bits from
    * the bit string.
    * @param n How many most significant bits to grab.
-   * @returns A new bit string which represents the most sigificant `n` bits of this
+   * @returns A new bit string which represents the most significant `n` bits of this
    * bit string.
    */
   msb(n: number): BitString {

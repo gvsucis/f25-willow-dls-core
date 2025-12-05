@@ -1,7 +1,5 @@
 /*
- * Copyright (c) 2025 Jordan Bancino <jordan@bancino.net>
- * Copyright (c) 2025 Austin Hargis <hargisa@mail.gvsu.edu>
- * Copyright (c) 2025 Aaron MacDougall <macdouaa@mail.gvsu.edu>
+ * Copyright (c) 2025 Zachary Kurmas
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,56 +23,45 @@
 import { beforeAll, test, expect } from "@jest/globals";
 import { BitString, Circuit, loadCircuit } from "../../src";
 import { JLSLoader } from "../../src/CircuitLoader/JLSLoader";
+import { FileLogger } from "../../src/CircuitLogger/FileLogger";
+import { LogLevel } from "../../src/CircuitLogger";
 
 let circuit: Circuit;
 
 beforeAll(async () => {
+  const logger = new FileLogger("jls.log");
+  logger.setLevel(LogLevel.TRACE);
+
   circuit = await loadCircuit(
     JLSLoader,
-    "tests/jls/AddVector.jls",
-    "AddVector",
+    "tests/jls/Bundler.jls",
+    "Bundler",
+    logger
   );
 });
 
-test("Test Memory", () => {
-  const initialState = [
-    "0x0",
-    "0x10",
-    "0x20",
-    "0x30",
-    "0x40",
-    "0x50",
+function genTest(output: BitString) {
+  return () => {
+    const results = circuit.run({
+      InputA0: output.bitSlice(0, 1),
+      InputA1_2: output.bitSlice(1, 3),
+      InputA3: output.bitSlice(3, 4),
+      InputA4: output.bitSlice(4, 5),
+      InputA5_7: output.bitSlice(5, 8),
+    });
 
-    "0x60",
-    "0x70",
-    "0x80",
-    "0x90",
-    "0xa0",
-    "0xb0",
-    "0xc0",
+    expect(results.outputs.OutputA.toString()).toBe(output.toString());
+  };
+}
 
-    "0xd0",
-    "0xe0",
-    "0xf0",
-  ].map((val) => new BitString(val, 16));
+let input = BitString.low(8);
 
-  circuit.writeMemory("TheMemory", 0, initialState);
-
-  circuit.run(
-    {
-      Offset: "0101",
-      Counter: "0011",
-    },
-    // (clockHigh, clockCycles, { outputs: { Halt } }) => {
-    //   console.log(`${clockHigh}, ${clockCycles}`);
-    //   return (clockCycles > 1 && Halt.toString() == "1") || clockCycles > 1000;
-    // },
-    // 3000,
-  );
-
-  const finalState = circuit.readMemory("TheMemory", 0, 16);
-
-  expect(finalState.map((b) => b.toString())).toStrictEqual(
-    initialState.map((b) => b.toString()),
-  );
-});
+// Test with various input values to verify bit ordering is correct
+while (true) {
+  test(`Splitter: ${input}`, genTest(input));
+  input = input.add("00000001");
+  // Overflow
+  if (input.toString() == "00000000") {
+    break;
+  }
+}
