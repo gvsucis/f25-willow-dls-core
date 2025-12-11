@@ -26,6 +26,11 @@ import { expect, beforeAll, test } from "@jest/globals";
 
 import { BitString } from "../src/BitString";
 
+test("constructor", () => {
+  const str = new BitString("101010");
+  expect(str.toString()).toBe("101010");
+});
+
 test("constructor truncate", () => {
   const str = new BitString("101010", 4);
   expect(str.toString()).toBe("1010");
@@ -34,6 +39,10 @@ test("constructor truncate", () => {
 test("constructor pad", () => {
   const str = new BitString("1010", 6);
   expect(str.toString()).toBe("001010");
+});
+
+test("constructor negative width", () => {
+  expect(() => new BitString("1010", -6)).toThrow();
 });
 
 test("high(1)", () => {
@@ -361,7 +370,6 @@ test("bitSlice of length 1", () => {
   expect(bs2.bitSlice(7, 8).toString()).toBe("1");
 });
 
-
 test("bitSlice of length 2", () => {
   const bs = new BitString("01100101");
   expect(bs.bitSlice(0, 2).toString()).toBe("01");
@@ -415,4 +423,43 @@ test("bitSlice with default end", () => {
   expect(bs.bitSlice(5).toString()).toBe("011");
   expect(bs.bitSlice(2).toString()).toBe("011001");
   expect(bs.bitSlice(0).toString()).toBe("01100101");
+});
+
+test("make with value and default width", () => {
+  expect(BitString.make(0).toString()).toBe("0");
+  expect(BitString.make(1).toString()).toBe("1");
+  expect(BitString.make(2).toString()).toBe("10");
+  expect(BitString.make(10).toString()).toBe("1010");
+  expect(BitString.make(70_244_863).toString()).toBe(
+    "100001011111101100111111111"
+  );
+  expect(BitString.make(2_147_483_647).toString()).toBe(
+    "1111111111111111111111111111111"
+  );
+});
+
+test("make with value and explicit, larger width", () => {
+  expect(BitString.make(0, 10).toString()).toBe("0000000000");
+  expect(BitString.make(1, 12).toString()).toBe("000000000001");
+  expect(BitString.make(14, 7).toString()).toBe("0001110");
+});
+
+test("make with value and explicit, smaller width", () => {
+  expect(BitString.make(14, 3).toString()).toBe("110");
+});
+
+test("make with negative value", () => {
+  expect(BitString.make(-2, 5).toString()).toBe("11110");
+  expect(BitString.make(-8, 7).toString()).toBe("1111000");
+  expect(BitString.make(-54, 7).toString()).toBe("1001010");
+  expect(BitString.make(-54, 12).toString()).toBe("111111001010");
+});
+
+test("make requires width for negative value", () => {
+  expect(() => BitString.make(-2)).toThrow();
+});
+
+test("make throws when given negative width", () => {
+  expect(() => BitString.make(43, -2)).toThrow();
+  expect(() => BitString.make(-43, -2)).toThrow();
 });

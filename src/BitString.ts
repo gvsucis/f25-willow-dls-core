@@ -91,11 +91,11 @@ function forBit(
  *
  * The reason this class exists is to bypass entirely the JavaScript `number`
  * data type for sending bits through the circuit simulation, because `number`
- * imposes restrictions on how values can be interpretted, as well as the size
+ * imposes restrictions on how values can be interpreted, as well as the size
  * of values. `BitString` imposes no such limitations; there is no practical
  * size limit of a bit string.
  *
- * Additionally, bit strings are useful for interpretting a collection of bits
+ * Additionally, bit strings are useful for interpreting a collection of bits
  * as either a signed or an unsigned number. Since JavaScript has no concept of
  * an unsigned number, it can be difficult to interpret results. This class
  * takes care of translating the bits in the string into either a positive or
@@ -117,6 +117,24 @@ export class BitString {
    */
   static low(width: number = 1): BitString {
     return new BitString("0".repeat(width));
+  }
+
+  /**
+   * Create a bit string from an integer
+   * @param value: the integer
+   * @param width: the desired width of the bit string. (See the constructor for details
+   * of how width is used.) Width is required for negative values.
+   */
+  static make(value: number, width: number = 0) {
+    if (value >= 0) {
+      return new BitString(value.toString(2), width);
+    } else {
+      if (width == 0) { 
+          throw new Error(`Width is required when creating a BitString for a negative value.`);
+      }
+      const bs = new BitString((-1 * value).toString(2), width);
+      return bs.twosCompliment();
+    }
   }
 
   /**
@@ -165,6 +183,11 @@ export class BitString {
    * significant bits, discarding the upper bits.
    */
   constructor(str: string, width: number = 0) {
+
+    if (width < 0) {
+      throw new Error("BitString width may not be negative");
+    }
+
     if (isBinaryString(str)) {
       this.#str = str;
     } else if (isHexString(str)) {
@@ -499,7 +522,7 @@ export class BitString {
    * Truncate this bit string, taking either the most significant `length` bits
    * or the least significant `length` bits.
    * @param length How many bits to truncate this bit string to. If this is greater
-   * than or equal to the length of this bitstring, then the whole string is returned.
+   * than or equal to the length of this bit string, then the whole string is returned.
    * @param upper Whether or not the upper bits should be grabbed or the lower bits
    * should be grabbed.
    * @returns A new bit string which is the truncation of this one.

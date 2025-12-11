@@ -43,6 +43,13 @@ export type CircuitRunType =
   | (BitString | string | null)[];
 
 /**
+ * A type describing the circuit output.
+ */
+export interface CircuitOutput {
+  [key: string]: BitString;
+}
+
+/**
  * {@link Circuit.run} returns this type, which contains the output values in the
  * same format that they were passed in to {@link Circuit.run}. That is, if you passed
  * an object, you'll get a keyed object where the keys are {@link Output} labels and
@@ -54,9 +61,9 @@ export type CircuitRunType =
  * value probably won't be that useful beyond attempting to optimize circuits for
  * shorter runtime.
  */
-export type CircuitRunResult<T extends CircuitRunType> = {
-  stop: boolean,
-  outputs: T;
+export type CircuitRunResult = {
+  stop: boolean;
+  outputs: CircuitOutput;
   propagationDelay: number;
   steps: number;
 };
@@ -121,7 +128,7 @@ export class Circuit extends CircuitLoggable {
       if (label && label != "") {
         if (this.#labeledElements[label]) {
           throw new Error(
-            `Multiple elements with the same label: '${e.getLabel()}'.`,
+            `Multiple elements with the same label: '${e.getLabel()}'.`
           );
         }
         this.#labeledElements[label] = e;
@@ -231,7 +238,7 @@ export class Circuit extends CircuitLoggable {
     super.log(
       level,
       `[id: '${this.getId()}', name: '${this.getName()}']: ${msg}`,
-      data,
+      data
     );
   }
 
@@ -294,17 +301,17 @@ export class Circuit extends CircuitLoggable {
     haltCond?: (
       clockHigh: boolean,
       clockCycles: number,
-      output: CircuitRunResult<T>,
+      output: CircuitRunResult
     ) => boolean,
-    clockFrequency: number = 1,
-  ): CircuitRunResult<T> {
+    clockFrequency: number = 1
+  ): CircuitRunResult {
     this.#log(LogLevel.INFO, `Beginning simulation with inputs:`, inputs);
 
     // There are no clocks; just tick once and return the results.
     if (!this.#clocks.length) {
       this.#log(
         LogLevel.DEBUG,
-        "No clock elements in this circuit; simply resolving.",
+        "No clock elements in this circuit; simply resolving."
       );
       return this.resolve(inputs);
     }
@@ -312,12 +319,12 @@ export class Circuit extends CircuitLoggable {
     if (!haltCond) {
       this.#log(
         LogLevel.WARN,
-        "Clock elements present but no halt condition provided; this simulation will run forever.",
+        "Clock elements present but no halt condition provided; this simulation will run forever."
       );
     }
 
     let init: boolean = true;
-    let result: CircuitRunResult<T>;
+    let result: CircuitRunResult;
 
     let clockHigh: boolean = false;
     let clockCycles: number = 0;
@@ -329,7 +336,7 @@ export class Circuit extends CircuitLoggable {
 
       this.#log(
         LogLevel.INFO,
-        `[cycle = ${clockCycles}, high = ${clockHigh}] Resolving circuit for this cycle.`,
+        `[cycle = ${clockCycles}, high = ${clockHigh}] Resolving circuit for this cycle.`
       );
 
       result = this.resolve(init ? inputs : undefined, clockFrequency);
@@ -337,18 +344,18 @@ export class Circuit extends CircuitLoggable {
       this.#log(
         LogLevel.INFO,
         `[cycle = ${clockCycles}, high = ${clockHigh}] Propagation delay: ${result.propagationDelay}`,
-        result.outputs,
+        result.outputs
       );
 
       if (clockFrequency && result.propagationDelay > clockFrequency) {
         this.#log(
           LogLevel.WARN,
-          `Circuit propogation delay longer than clock frequency: results cannot be trusted.`,
+          `Circuit propagation delay longer than clock frequency: results cannot be trusted.`
         );
       }
 
       clockHigh = BitString.high().equals(
-        this.#clocks[0].getOutputs()[0].getValue(),
+        this.#clocks[0].getOutputs()[0].getValue()
       );
       init = false;
 
@@ -363,13 +370,13 @@ export class Circuit extends CircuitLoggable {
 
     this.#log(
       LogLevel.INFO,
-      `Halt condition satisfied after ${clockCycles} cycles. Clock ended ${clockHigh ? "high" : "low"}.`,
+      `Halt condition satisfied after ${clockCycles} cycles. Clock ended ${clockHigh ? "high" : "low"}.`
     );
 
     this.#log(
       LogLevel.INFO,
       `Completed simulation with outputs:`,
-      result.outputs,
+      result.outputs
     );
 
     return result;
@@ -395,8 +402,8 @@ export class Circuit extends CircuitLoggable {
    */
   resolve<T extends CircuitRunType>(
     inputs?: T,
-    timeLimit?: number,
-  ): CircuitRunResult<T> {
+    timeLimit?: number
+  ): CircuitRunResult {
     type QueueEntry = {
       time: number;
       element: CircuitElement;
@@ -415,7 +422,7 @@ export class Circuit extends CircuitLoggable {
       if (Array.isArray(inputs)) {
         this.#log(
           LogLevel.TRACE,
-          "Input was provided as array; setting inputs by index.",
+          "Input was provided as array; setting inputs by index."
         );
         Object.values(this.getInputs()).forEach((input) => {
           let value = inputs[input.getIndex()];
@@ -431,7 +438,7 @@ export class Circuit extends CircuitLoggable {
       } else {
         this.#log(
           LogLevel.TRACE,
-          "Input was provided as an object; setting inputs by key.",
+          "Input was provided as an object; setting inputs by key."
         );
         const inputLabels = Object.keys(inputs);
         for (const i in inputLabels) {
@@ -453,7 +460,7 @@ export class Circuit extends CircuitLoggable {
     } else {
       this.#log(
         LogLevel.TRACE,
-        "No inputs provided; preserving previous state.",
+        "No inputs provided; preserving previous state."
       );
     }
 
@@ -488,7 +495,7 @@ export class Circuit extends CircuitLoggable {
 
       this.#log(
         LogLevel.DEBUG,
-        `[Step: ${steps + 1}, Time: ${time}] Resolving element: ${entry.element}`,
+        `[Step: ${steps + 1}, Time: ${time}] Resolving element: ${entry.element}`
       );
 
       const currentOutputs = entry.element
@@ -501,7 +508,10 @@ export class Circuit extends CircuitLoggable {
       } catch (e) {
         if (e instanceof SimulationStopError) {
           stopErr = e;
-          this.log(LogLevel.DEBUG, `Simulation stopped by a Stop element. Draining outputs in queue.`);
+          this.log(
+            LogLevel.DEBUG,
+            `Simulation stopped by a Stop element. Draining outputs in queue.`
+          );
           continue;
         } else {
           throw e;
@@ -521,10 +531,10 @@ export class Circuit extends CircuitLoggable {
             entry?.element instanceof Input ||
             (o.getValue() == null && currentOutputs[i] != null) ||
             (o.getValue() != null &&
-              !(o.getValue() as BitString).equals(currentOutputs[i])),
+              !(o.getValue() as BitString).equals(currentOutputs[i]))
         )
         .map(
-          (o) => (o.setLastUpdate((entry as QueueEntry).time), o.getElements()),
+          (o) => (o.setLastUpdate((entry as QueueEntry).time), o.getElements())
         )
         .flat()
         // Ensure that whatever the current element would propagate to actually has the element as an
@@ -536,7 +546,7 @@ export class Circuit extends CircuitLoggable {
             .getInputs()
             .map((i) => i.getElements())
             .flat()
-            .includes((entry as QueueEntry).element),
+            .includes((entry as QueueEntry).element)
         );
 
       for (const el of propTo) {
@@ -547,7 +557,7 @@ export class Circuit extends CircuitLoggable {
           if (propDelay) {
             this.#log(
               LogLevel.TRACE,
-              `Delaying resolution until t = ${time + propDelay}`,
+              `Delaying resolution until t = ${time + propDelay}`
             );
             eventQueue[entryInd].time = time + propDelay;
           }
@@ -563,7 +573,6 @@ export class Circuit extends CircuitLoggable {
           });
         } else {
           this.#log(LogLevel.TRACE, `(Stop) Would propagate to: ${el}]`);
-
         }
       }
 
@@ -572,20 +581,20 @@ export class Circuit extends CircuitLoggable {
       this.#log(
         LogLevel.TRACE,
         `Event Queue:`,
-        eventQueue.map((e) => `[t = ${e.time}] ${e.element}`),
+        eventQueue.map((e) => `[t = ${e.time}] ${e.element}`)
       );
 
       if (timeLimit && time >= timeLimit) {
         this.#log(
           LogLevel.INFO,
-          `Time ${time} exceeded limit of ${timeLimit}.`,
+          `Time ${time} exceeded limit of ${timeLimit}.`
         );
         continue; // Will drain outputs.
       }
 
       if (steps > 1000000) {
         throw new Error(
-          "Resolution step limit exceeded; check for loops in circuit.",
+          "Resolution step limit exceeded; check for loops in circuit."
         );
       }
     }

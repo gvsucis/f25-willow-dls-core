@@ -38,7 +38,7 @@ import { Input } from "../CircuitElement/Input";
 import { Output } from "../CircuitElement/Output";
 import { OrGate } from "../CircuitElement/OrGate";
 import { SubCircuit } from "../CircuitElement/SubCircuit";
-import { Decoder } from "../CircuitElement/Decoder";
+import { JLSDecoder } from "../CircuitElement/JLSDecoder";
 import { BufferGate } from "../CircuitElement/BufferGate";
 import { NorGate } from "../CircuitElement/NorGate";
 import { Adder } from "../CircuitElement/Adder";
@@ -221,7 +221,7 @@ const createElement: Record<
   Clock: (data, inputs, outputs) => new Clock(outputs[0]),
   Adder: (data, inputs, outputs) =>
     new Adder(inputs[0], inputs[1], inputs[2], outputs[1], outputs[0]),
-  Decoder: (data, inputs, outputs) => new Decoder(inputs[0], outputs),
+  Decoder: (data, inputs, outputs) => new JLSDecoder(inputs[0], outputs),
   TriState: (data, inputs, outputs) =>
     new TriState(inputs[1], inputs[0], outputs[0]),
   Mux: (data, inputs, outputs) => {

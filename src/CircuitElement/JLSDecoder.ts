@@ -28,11 +28,9 @@ import { BitString } from "../BitString";
 import { LogLevel } from "../CircuitLogger";
 
 /**
- * Decoder is a class representing a priority decoder, which takes an input bus and outputs
- * a corresponding output bus where only one output is set to high (1) based on the input value,
- * and all other outputs are set to low (0).
+ * This Decoder has a single output bus. (In contrast, Decoder has many separate, one-bit outputs.)
  */
-export class Decoder extends CircuitElement {
+export class JLSDecoder extends CircuitElement {
   /** The width of the enable input for the decoder. */
   readonly ENABLE_WIDTH: number = 1;
 
@@ -64,19 +62,8 @@ export class Decoder extends CircuitElement {
     const inputNum = inputValue.toUnsigned();
     this.log(LogLevel.TRACE, `Input: [width=${inputWidth}] '${inputString}' -- ${inputNum}`);
 
-    // Set the output corresponding to the input value to high and others to low
-    for (let i = 0; i < output.length; i++) {
-      if (i == inputNum) {
-        output[i].setValue(BitString.high());
-      } else {
-        output[i].setValue(BitString.low());
-      }
-    }
-    this.log(
-      LogLevel.TRACE,
-      `Output: ${output.toString()}`
-    );
-    
+    output[0].setValue(BitString.make(1 << inputNum), inputWidth);
+
     return this.getPropagationDelay();
   }
 }
