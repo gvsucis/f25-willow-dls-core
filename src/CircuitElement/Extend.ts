@@ -24,6 +24,8 @@
 
 import { CircuitBus } from "../CircuitBus";
 import { CircuitElement } from "../CircuitElement";
+import { BitString } from "../BitString";
+import { LogLevel, logLevelString } from "../CircuitLogger";
 
 /**
  * The Extender is what JLS calls a "make N copies" element. It simply takes
@@ -32,17 +34,28 @@ import { CircuitElement } from "../CircuitElement";
  * using that element.
  */
 export class Extend extends CircuitElement {
-  constructor(input: CircuitBus, outputs: CircuitBus[]) {
-    super("ExtendElement", [input], outputs);
+  constructor(input: CircuitBus, output: CircuitBus) {
+    super("ExtendElement", [input], [output]);
+    if (input.getWidth() !== 1) {
+      throw new Error("Extend input must have width 1.");
+    }
   }
 
   resolve(): number {
     const [input] = this.getInputs();
+    const [output] = this.getOutputs();
 
-    for (const output of this.getOutputs()) {
-      output.setValue(input.getValue());
+    const inputValue = input.getValue();
+    if (inputValue !== null) {
+      const value = inputValue.toUnsigned();
+      if (value == 0) {
+        output.setValue(BitString.low(output.getWidth()));
+      } else if (value == 1) {
+        output.setValue(BitString.high(output.getWidth()));
+      } else {
+        throw new Error(`Unexpected input to Extent:  ${input.toString()}`);
+      }
     }
-
     return this.getPropagationDelay();
   }
 }

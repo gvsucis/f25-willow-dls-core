@@ -4,33 +4,34 @@ import { Extend } from "../../src/CircuitElement/Extend";
 
 describe("Extend element", () => {
   it("duplicates input to all outputs", () => {
-    const input = new CircuitBus(2);
-    const out1 = new CircuitBus(2);
-    const out2 = new CircuitBus(2);
-    const out3 = new CircuitBus(2);
+    const input = new CircuitBus(1);
+    const output = new CircuitBus(6);
 
-    const ext = new Extend(input, [out1, out2, out3]);
+    const ext = new Extend(input, output);
 
-    input.setValue(new BitString("10"));
+    input.setValue(new BitString("1"));
 
     ext.resolve();
 
-    expect(out1.getValue()?.equals("10")).toBeTruthy();
-    expect(out2.getValue()?.equals("10")).toBeTruthy();
-    expect(out3.getValue()?.equals("10")).toBeTruthy();
+    expect(output.getValue()?.equals("111111")).toBeTruthy();
   });
 
   it("propagates null (floating) to outputs", () => {
     const input = new CircuitBus(1);
-    const out1 = new CircuitBus(1);
-    const out2 = new CircuitBus(1);
+    const output = new CircuitBus(5);
 
-    const ext = new Extend(input, [out1, out2]);
+    const ext = new Extend(input, output);
 
     // leave input unset (null)
     ext.resolve();
 
-    expect(out1.getValue()).toBeNull();
-    expect(out2.getValue()).toBeNull();
+    expect(output.getValue()).toBeNull();
+  });
+
+  it("Does not allow inputs of width 2 or more", () => {
+    const input = new CircuitBus(2);
+    const output = new CircuitBus(6);
+
+    expect(() => new Extend(input, output)).toThrow();
   });
 });

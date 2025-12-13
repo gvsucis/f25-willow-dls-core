@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-import { beforeAll, test, expect } from "@jest/globals";
+import { beforeAll, describe, test, expect } from "@jest/globals";
 import { BitString, Circuit, loadCircuit } from "../../src";
 import { JLSLoader } from "../../src/CircuitLoader/JLSLoader";
 import { FileLogger } from "../../src/CircuitLogger/FileLogger";
@@ -30,16 +30,89 @@ import { LogLevel } from "../../src/CircuitLogger";
 
 let circuit: Circuit;
 
-beforeAll(async () => {
-  // const logger = new FileLogger("jls.log");
-  // logger.setLevel(LogLevel.TRACE);
+describe("N copies of input", () => {
+  let logger: FileLogger;
+  beforeAll(async () => {
+    logger = new FileLogger("jls.log");
+    logger.setLevel(LogLevel.TRACE);
+  });
 
-  circuit = await loadCircuit(
-    JLSLoader,
-    "tests/jls/MakeNInputs.jls",
-    "MakeNInputs",
-    // logger,
-  );
+  for (const testName of ["MakeNInputs", "MakeNInputsMultiWire"]) {
+    describe(` using ${testName} with`, () => {
+      beforeAll(async () => {
+        circuit = await loadCircuit(
+          JLSLoader,
+          `tests/jls/${testName}.jls`,
+          testName,
+          logger
+        );
+      });
+
+      test("input 0", () => {
+        const results = circuit.run({
+          Input: "0",
+        });
+        expect(results.outputs.Output.toString()).toStrictEqual("0000");
+      });
+
+      test("input 1", () => {
+        const results = circuit.run({
+          Input: "1",
+        });
+        expect(results.outputs.Output.toString()).toStrictEqual("1111");
+      });
+    });
+  }
+
+  const splitName = `MakeNInputsSplit`;
+  describe(` using ${splitName} with`, () => {
+    beforeAll(async () => {
+      circuit = await loadCircuit(
+        JLSLoader,
+        `tests/jls/${splitName}.jls`,
+        splitName,
+        logger
+      );
+    });
+
+    test("inputs 0, 0", () => {
+      const results = circuit.run({
+        Input: "0",
+        Input2: "0",
+      });
+      expect(results.outputs.Output.toString()).toStrictEqual("0000");
+      expect(results.outputs.Output2.toString()).toStrictEqual("00");
+      expect(results.outputs.Output3.toString()).toStrictEqual("00");
+    });
+
+    test("inputs 0, 1", () => {
+      const results = circuit.run({
+        Input: "0",
+        Input2: "1",
+      });
+      expect(results.outputs.Output.toString()).toStrictEqual("0000");
+      expect(results.outputs.Output2.toString()).toStrictEqual("00");
+      expect(results.outputs.Output3.toString()).toStrictEqual("11");
+    });
+
+    test("input 1, 0", () => {
+      const results = circuit.run({
+        Input: "1",
+        Input2: "0",
+      });
+      expect(results.outputs.Output.toString()).toStrictEqual("1111");
+      expect(results.outputs.Output2.toString()).toStrictEqual("00");
+      expect(results.outputs.Output3.toString()).toStrictEqual("11");
+    });
+
+    test("input 1, 1", () => {
+      const results = circuit.run({
+        Input: "1",
+        Input2: "1",
+      });
+      expect(results.outputs.Output.toString()).toStrictEqual("1111");
+      expect(results.outputs.Output2.toString()).toStrictEqual("11");
+      expect(results.outputs.Output3.toString()).toStrictEqual("11");
+    });
+  });
 });
-
-test("Just needs to load", () => { });

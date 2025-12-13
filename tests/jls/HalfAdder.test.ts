@@ -49,7 +49,7 @@ const truthTable = [
   ["11", "01"],
 ];
 
-function genTest(inputs, outputs) {
+function genTest(inputs : any, outputs :any) {
   return () => {
     const actualOutputs = circuit.run(inputs).outputs;
     expect(actualOutputs.Sum.toString()).toStrictEqual(outputs.Sum);
