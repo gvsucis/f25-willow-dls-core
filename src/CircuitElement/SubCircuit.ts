@@ -39,7 +39,7 @@ export class SubCircuit extends CircuitElement {
 
   /**
    * Create a new subcircuit.
-   * @param circuit The circuit to convert to a ciruit element.
+   * @param circuit The circuit to convert to a circuit element.
    * @param inputs The subcircuit inputs.
    * @param outputs The subcircuit outputs.
    */

@@ -1,7 +1,5 @@
 /*
- * Copyright (c) 2025 Jordan Bancino <jordan@bancino.net>
- * Copyright (c) 2025 Austin Hargis <hargisa@mail.gvsu.edu>
- * Copyright (c) 2025 Aaron MacDougall <macdouaa@mail.gvsu.edu>
+ * Copyright (c) 2025 Zachary Kurmas
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -36,52 +34,49 @@ beforeAll(async () => {
 
   circuit = await loadCircuit(
     JLSLoader,
-    "tests/jls/SubcircuitTest.jls",
-    "EightBitAdder",
-    logger,
+    "tests/jls/DiscreteSplitter.jls",
+    "DiscreteSplitter",
+    logger
   );
 });
 
-test("JLS Eight Bit Adder Subcircuit test", () => {
-  //  This test implicitly requires that the 8 bit adder is correct,
-  // but really it's just testing that all the subcircuit indices line
-  // up properly.
-  const results = circuit.run({
-    A0: "0",
-    A1: "0",
-    A2: "0",
-    A3: "0",
-    A4: "0",
-    A5: "1",
-    A6: "0",
-    A7: "1",
+function genTest(input: BitString) {
+  return () => {
+    const results = circuit.run({
+      InputA: input.bitSlice(0, 6),
+      InputB: input.bitSlice(6, 13),
+      InputC: new BitString("0101010101010"),
+    });
 
-    B0: "1",
-    B1: "0",
-    B2: "0",
-    B3: "0",
-    B4: "0",
-    B5: "1",
-    B6: "0",
-    B7: "0",
-  });
+    const mappingA = [6, 0, 2, 7, 9, 4, 11];
+    const expA = new BitString(
+      mappingA.map((i) => input.bitSlice(i, i + 1).toString()).join()
+    ).toString();
+    expect(results.outputs.OutputA.toString()).toBe(expA);
 
-  const expectedOutputs = {
-    Sum0: "1",
-    Sum1: "0",
-    Sum2: "0",
-    Sum3: "0",
-    Sum4: "0",
-    Sum5: "0",
-    Sum6: "1",
-    Sum7: "1",
-    Carry: "0",
+    const mappingB = [8, 9, 1, 12, 3, 5];
+    const expB = new BitString(
+      mappingB.map((i) => input.bitSlice(i, i + 1).toString()).join()
+    ).toString();
+    expect(results.outputs.OutputB.toString()).toBe(expB);
   };
+}
 
-  const actualOutputs = { ...results.outputs };
-  Object.keys(actualOutputs).forEach((k) => {
-    actualOutputs[k] = actualOutputs[k].toString();
-  });
+let input = BitString.low(13);
 
-  expect(actualOutputs).toStrictEqual(expectedOutputs);
-});
+// Test with various input values to verify bit ordering is correct
+
+// Willow currently can't handle JLS bundlers where the
+// components are not consecutive.
+test.skip(`Splitter: ${input}`, genTest(input));
+
+/* Uncomment when splitter has been updated.
+while (true) {
+  test(`Splitter: ${input}`, genTest(input));
+  input = input.add("0000000000011");
+  // Overflow
+  if (input.toString() == "0000000000001") {
+    break;
+  }
+}
+  */

@@ -43,13 +43,6 @@ export type CircuitRunType =
   | (BitString | string | null)[];
 
 /**
- * A type describing the circuit output.
- */
-export interface CircuitOutput {
-  [key: string]: BitString;
-}
-
-/**
  * {@link Circuit.run} returns this type, which contains the output values in the
  * same format that they were passed in to {@link Circuit.run}. That is, if you passed
  * an object, you'll get a keyed object where the keys are {@link Output} labels and
@@ -61,12 +54,23 @@ export interface CircuitOutput {
  * value probably won't be that useful beyond attempting to optimize circuits for
  * shorter runtime.
  */
-export type CircuitRunResult = {
-  stop: boolean;
-  outputs: CircuitOutput;
+export type MainCircuitRunResult = {
+  stop: boolean | null;
+  outputs: Record<string, BitString | null>;
+  outputStrings: Record<string, string | null>;
   propagationDelay: number;
   steps: number;
 };
+
+export type SubcircuitRunResult = {
+  outputs: (BitString | null)[];
+  propagationDelay: number;
+  steps: number;
+};
+
+export type CircuitRunResult<T> = T extends any[]
+  ? SubcircuitRunResult
+  : MainCircuitRunResult;
 
 /**
  * The Circuit is how you execute the simulation. It provides everything you
@@ -296,15 +300,19 @@ export class Circuit extends CircuitLoggable {
    * @returns An object which contains the results of simulating this circuit, including the total
    * propagation delay, the number of simulation steps required, and the output values.
    */
-  run<T extends CircuitRunType>(
-    inputs: T,
+  // Note: This is not a generic method, because run() is only called on main circuits.
+  // (Hence, we can hard-code MainCircuitRunResult in the return type.)
+  // Should we ever need to call run() on sub-circuits, have this be a generic CircuitRunType and
+  // use CircuitRunResults<T>.  But then, you'll have a small issue with results.stop.
+  run(
+    inputs: Record<string, BitString | string>,
     haltCond?: (
       clockHigh: boolean,
       clockCycles: number,
-      output: CircuitRunResult
+      output: CircuitRunResult<MainCircuitRunResult>
     ) => boolean,
     clockFrequency: number = 1
-  ): CircuitRunResult {
+  ): CircuitRunResult<MainCircuitRunResult> {
     this.#log(LogLevel.INFO, `Beginning simulation with inputs:`, inputs);
 
     // There are no clocks; just tick once and return the results.
@@ -324,7 +332,7 @@ export class Circuit extends CircuitLoggable {
     }
 
     let init: boolean = true;
-    let result: CircuitRunResult;
+    let result: CircuitRunResult<MainCircuitRunResult>;
 
     let clockHigh: boolean = false;
     let clockCycles: number = 0;
@@ -403,7 +411,7 @@ export class Circuit extends CircuitLoggable {
   resolve<T extends CircuitRunType>(
     inputs?: T,
     timeLimit?: number
-  ): CircuitRunResult {
+  ): T extends any[] ? SubcircuitRunResult : MainCircuitRunResult {
     type QueueEntry = {
       time: number;
       element: CircuitElement;
@@ -600,38 +608,45 @@ export class Circuit extends CircuitLoggable {
     }
 
     this.#log(LogLevel.TRACE, "Resolution completed. Collecting outputs...");
-    let output;
 
     // Return circuit outputs
     // Regardless of whether the user submitted a string or a BitString
     // for the inputs, BitStrings will be returned as they preserve information
     // such as the bus width of the output.
     if (Array.isArray(inputs)) {
-      this.#log(LogLevel.TRACE, "Building output as array.");
-      output = {
+      this.#log(
+        LogLevel.TRACE,
+        `Building circuit ${this.#name} output as array.`
+      );
+      const output = {
         outputs: Object.values(this.getOutputs()).map((o) => o.getValue()),
         propagationDelay: time,
         steps: steps,
       };
+      this.#log(LogLevel.INFO, `Resolved subcircuit with outputs:`, output);
+      return output as T extends any[] ? SubcircuitRunResult : never;
     } else {
-      this.#log(LogLevel.TRACE, "Building output as object.");
+      this.#log(
+        LogLevel.TRACE,
+        `Building circuit ${this.#name} output as object.`
+      );
       const outputs: Record<string, BitString | null> = {};
+      const outputStrings: Record<string, string | null> = {};
       const elements = this.getOutputs();
       for (const key of Object.keys(elements)) {
         outputs[key] = elements[key].getValue();
+        outputStrings[key] =
+          outputs[key] != null ? outputs[key].toString() : null;
       }
-
-      output = {
+      const output = {
         stop: stopErr ? true : false,
         outputs: outputs,
+        outputStrings: outputStrings,
         propagationDelay: time,
         steps: steps,
       };
+      this.#log(LogLevel.INFO, `Resolved main circuit with outputs:`, output);
+      return output as T extends any[] ? never : MainCircuitRunResult;
     }
-
-    this.#log(LogLevel.INFO, `Resolved circuit with outputs:`, output);
-
-    // @ts-ignore
-    return output;
   }
 }

@@ -25,6 +25,7 @@ import { BitString, Circuit, loadCircuit } from "../../src";
 import { JLSLoader } from "../../src/CircuitLoader/JLSLoader";
 import { FileLogger } from "../../src/CircuitLogger/FileLogger";
 import { LogLevel } from "../../src/CircuitLogger";
+import { MainCircuitRunResult } from "../../src/Circuit";
 
 let circuit: Circuit;
 
@@ -46,28 +47,30 @@ function genTest(input: BitString) {
       InputA: input,
     });
 
-    expect(results.outputs.Output0.toString()).toBe(
+    const outputs = results.outputStrings;
+
+    expect(outputs.Output0).toBe(
       input.bitSlice(0, 1).toString()
     );
-    expect(results.outputs.Output1.toString()).toBe(
+    expect(outputs.Output1).toBe(
       input.bitSlice(1, 2).toString()
     );
-    expect(results.outputs.Output3_1.toString()).toBe(
+    expect(outputs.Output3_1).toBe(
       input.bitSlice(1, 4).toString()
     );
-    expect(results.outputs.Output4.toString()).toBe(
+    expect(outputs.Output4).toBe(
       input.bitSlice(4, 5).toString()
     );
-    expect(results.outputs.Output2_0.toString()).toBe(
+    expect(outputs.Output2_0).toBe(
       input.bitSlice(0, 3).toString()
     );
-    expect(results.outputs.Output5.toString()).toBe(
+    expect(outputs.Output5).toBe(
       input.bitSlice(5, 6).toString()
     );
-    expect(results.outputs.Output7_6.toString()).toBe(
+    expect(outputs.Output7_6).toBe(
       input.bitSlice(6, 8).toString()
     );
-    expect(results.outputs.Output3.toString()).toBe(
+    expect(outputs.Output3).toBe(
       input.bitSlice(3, 4).toString()
     );
   };

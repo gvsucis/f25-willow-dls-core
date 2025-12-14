@@ -31,15 +31,58 @@ import { LogLevel } from "../../src/CircuitLogger";
 let circuit: Circuit;
 
 beforeAll(async () => {
-  // const logger = new FileLogger("jls.log");
-  // logger.setLevel(LogLevel.TRACE);
+   const logger = new FileLogger("jls.log");
+   logger.setLevel(LogLevel.TRACE);
 
   circuit = await loadCircuit(
     JLSLoader,
-    "tests/jls/Multiplexer.jls",
+    "tests/jls/Multiplexer2bit.jls",
     "Multiplexer",
-    // logger,
+     logger,
   );
 });
 
-test("Just needs to load", () => { });
+test("4 to 1 mux select 0", () => {
+  const results = circuit.run({
+    M0: "01",
+    M1: "10",
+    M2: "11",
+    M3: "00",
+    C0: "00"
+  });
+  expect(results.outputs.Out.toString()).toStrictEqual("01");
+});
+
+test("4 to 1 mux select 1", () => {
+  const results = circuit.run({
+    M0: "01",
+    M1: "10",
+    M2: "11",
+    M3: "00",
+    C0: "01",
+  });
+  expect(results.outputs.Out.toString()).toStrictEqual("10");
+});
+
+test("4 to 1 mux select 2", () => {
+  const results = circuit.run({
+    M0: "01",
+    M1: "10",
+    M2: "11",
+    M3: "00",
+    C0: "10",
+  });
+  expect(results.outputs.Out.toString()).toStrictEqual("11");
+});
+
+test("4 to 1 mux select 3", () => {
+  const results = circuit.run({
+    M0: "01",
+    M1: "10",
+    M2: "11",
+    M3: "00",
+    C0: "11",
+  });
+  expect(results.outputs.Out.toString()).toStrictEqual("00");
+});
+

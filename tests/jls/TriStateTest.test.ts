@@ -42,4 +42,34 @@ beforeAll(async () => {
   );
 });
 
-test("Just needs to load", () => { });
+test("Enabled with 0 input", () => { 
+    const results = circuit.run({
+      TriStateIn: "0",
+      TriStateState: "1",
+    });
+    expect(results.outputs.TriStateOut.toString()).toStrictEqual("0");
+});
+
+test("Enabled with 1 input", () => {
+  const results = circuit.run({
+    TriStateIn: "1",
+    TriStateState: "1",
+  });
+  expect(results.outputs.TriStateOut.toString()).toStrictEqual("1");
+});
+
+test("Disabled with 0 input", () => {
+  const results = circuit.run({
+    TriStateIn: "0",
+    TriStateState: "0",
+  });
+  expect(results.outputs.TriStateOut).toBeNull()
+});
+
+test("Disabled with 1 input", () => {
+  const results = circuit.run({
+    TriStateIn: "1",
+    TriStateState: "0",
+  });
+  expect(results.outputs.TriStateOut).toBeNull()
+});

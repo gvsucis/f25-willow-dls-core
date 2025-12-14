@@ -1,7 +1,4 @@
 /*
- * Copyright (c) 2025 Jordan Bancino <jordan@bancino.net>
- * Copyright (c) 2025 Austin Hargis <hargisa@mail.gvsu.edu>
- * Copyright (c) 2025 Aaron MacDougall <macdouaa@mail.gvsu.edu>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -31,57 +28,59 @@ import { LogLevel } from "../../src/CircuitLogger";
 let circuit: Circuit;
 
 beforeAll(async () => {
-  const logger = new FileLogger("jls.log");
-  logger.setLevel(LogLevel.TRACE);
+   const logger = new FileLogger("jls.log");
+   logger.setLevel(LogLevel.TRACE);
 
   circuit = await loadCircuit(
     JLSLoader,
-    "tests/jls/SubcircuitTest.jls",
-    "EightBitAdder",
-    logger,
+    "tests/jls/Multiplexer4bit.jls",
+    "Multiplexer4bit",
+     logger,
   );
 });
 
-test("JLS Eight Bit Adder Subcircuit test", () => {
-  //  This test implicitly requires that the 8 bit adder is correct,
-  // but really it's just testing that all the subcircuit indices line
-  // up properly.
+test("4-bit mux select 0", () => {
   const results = circuit.run({
-    A0: "0",
-    A1: "0",
-    A2: "0",
-    A3: "0",
-    A4: "0",
-    A5: "1",
-    A6: "0",
-    A7: "1",
-
-    B0: "1",
-    B1: "0",
-    B2: "0",
-    B3: "0",
-    B4: "0",
-    B5: "1",
-    B6: "0",
-    B7: "0",
+    M0: "0101",
+    M1: "0110",
+    M2: "1011",
+    M3: "1100",
+    C0: "00"
   });
-
-  const expectedOutputs = {
-    Sum0: "1",
-    Sum1: "0",
-    Sum2: "0",
-    Sum3: "0",
-    Sum4: "0",
-    Sum5: "0",
-    Sum6: "1",
-    Sum7: "1",
-    Carry: "0",
-  };
-
-  const actualOutputs = { ...results.outputs };
-  Object.keys(actualOutputs).forEach((k) => {
-    actualOutputs[k] = actualOutputs[k].toString();
-  });
-
-  expect(actualOutputs).toStrictEqual(expectedOutputs);
+  expect(results.outputs.Out.toString()).toStrictEqual("0101");
 });
+
+test("4-bit mux select 1", () => {
+  const results = circuit.run({
+    M0: "0101",
+    M1: "0110",
+    M2: "1011",
+    M3: "1100",
+    C0: "01",
+  });
+  expect(results.outputs.Out.toString()).toStrictEqual("0110");
+});
+
+test("4-bit mux select 2", () => {
+  const results = circuit.run({
+    M0: "0101",
+    M1: "0110",
+    M2: "1011",
+    M3: "1100",
+    C0: "10",
+  });
+  expect(results.outputs.Out.toString()).toStrictEqual("1011");
+});
+
+test("4-bit mux select 3", () => {
+  const results = circuit.run({
+    M0: "0101",
+    M1: "0110",
+    M2: "1011",
+    M3: "1100",
+    C0: "11",
+  });
+  expect(results.outputs.Out.toString()).toStrictEqual("1100");
+});
+
+
