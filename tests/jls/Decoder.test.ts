@@ -38,22 +38,24 @@ beforeAll(async () => {
     JLSLoader,
     "tests/jls/Decoder.jls",
     "Decoder",
-    logger,
+    logger
   );
 });
 
-test("Decoder 0000", () => { 
+test("Decoder 0000", () => {
   const results = circuit.run({
-    DecoderIn: "0000"
+    DecoderIn: "0000",
   });
-  expect(results.outputs.DecoderOut.toString()).toStrictEqual("0000000000000001");
+  expect(results.outputs.DecoderOut?.toString()).toStrictEqual(
+    "0000000000000001"
+  );
 });
 
 test("Decoder 0001", () => {
   const results = circuit.run({
     DecoderIn: "0001",
   });
-  expect(results.outputs.DecoderOut.toString()).toStrictEqual(
+  expect(results.outputs.DecoderOut?.toString()).toStrictEqual(
     "0000000000000010"
   );
 });
@@ -62,7 +64,7 @@ test("Decoder 0011", () => {
   const results = circuit.run({
     DecoderIn: "0011",
   });
-  expect(results.outputs.DecoderOut.toString()).toStrictEqual(
+  expect(results.outputs.DecoderOut?.toString()).toStrictEqual(
     "0000000000001000"
   );
 });
@@ -71,7 +73,7 @@ test("Decoder 1110", () => {
   const results = circuit.run({
     DecoderIn: "1110",
   });
-  expect(results.outputs.DecoderOut.toString()).toStrictEqual(
+  expect(results.outputs.DecoderOut?.toString()).toStrictEqual(
     "0100000000000000"
   );
 });
@@ -80,8 +82,7 @@ test("Decoder 1111", () => {
   const results = circuit.run({
     DecoderIn: "1111",
   });
-  expect(results.outputs.DecoderOut.toString()).toStrictEqual(
+  expect(results.outputs.DecoderOut?.toString()).toStrictEqual(
     "1000000000000000"
   );
 });
-

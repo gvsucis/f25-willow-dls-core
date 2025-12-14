@@ -52,14 +52,14 @@ describe("N copies of input", () => {
         const results = circuit.run({
           Input: "0",
         });
-        expect(results.outputs.Output.toString()).toStrictEqual("0000");
+        expect(results.outputs.Output?.toString()).toStrictEqual("0000");
       });
 
       test("input 1", () => {
         const results = circuit.run({
           Input: "1",
         });
-        expect(results.outputs.Output.toString()).toStrictEqual("1111");
+        expect(results.outputs.Output?.toString()).toStrictEqual("1111");
       });
     });
   }
@@ -76,43 +76,43 @@ describe("N copies of input", () => {
     });
 
     test("inputs 0, 0", () => {
-      const results = circuit.run({
+      const outputs = circuit.run({
         Input: "0",
         Input2: "0",
-      });
-      expect(results.outputs.Output.toString()).toStrictEqual("0000");
-      expect(results.outputs.Output2.toString()).toStrictEqual("00");
-      expect(results.outputs.Output3.toString()).toStrictEqual("00");
+      }).outputStrings;
+      expect(outputs.Output).toStrictEqual("0000");
+      expect(outputs.Output2).toStrictEqual("00");
+      expect(outputs.Output3).toStrictEqual("00");
     });
 
     test("inputs 0, 1", () => {
-      const results = circuit.run({
+      const outputs = circuit.run({
         Input: "0",
         Input2: "1",
-      });
-      expect(results.outputs.Output.toString()).toStrictEqual("0000");
-      expect(results.outputs.Output2.toString()).toStrictEqual("00");
-      expect(results.outputs.Output3.toString()).toStrictEqual("11");
+      }).outputStrings;
+      expect(outputs.Output).toStrictEqual("0000");
+      expect(outputs.Output2).toStrictEqual("00");
+      expect(outputs.Output3).toStrictEqual("11");
     });
 
     test("input 1, 0", () => {
-      const results = circuit.run({
+      const outputs = circuit.run({
         Input: "1",
         Input2: "0",
-      });
-      expect(results.outputs.Output.toString()).toStrictEqual("1111");
-      expect(results.outputs.Output2.toString()).toStrictEqual("00");
-      expect(results.outputs.Output3.toString()).toStrictEqual("11");
+      }).outputStrings;
+      expect(outputs.Output ).toStrictEqual("1111");
+      expect(outputs.Output2).toStrictEqual("00");
+      expect(outputs.Output3).toStrictEqual("11");
     });
 
     test("input 1, 1", () => {
-      const results = circuit.run({
+      const outputs = circuit.run({
         Input: "1",
         Input2: "1",
-      });
-      expect(results.outputs.Output.toString()).toStrictEqual("1111");
-      expect(results.outputs.Output2.toString()).toStrictEqual("11");
-      expect(results.outputs.Output3.toString()).toStrictEqual("11");
+      }).outputStrings;
+      expect(outputs.Output).toStrictEqual("1111");
+      expect(outputs.Output2).toStrictEqual("11");
+      expect(outputs.Output3).toStrictEqual("11");
     });
   });
 });

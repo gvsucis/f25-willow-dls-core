@@ -50,7 +50,7 @@ test("4 to 1 mux select 0", () => {
     M3: "00",
     C0: "00"
   });
-  expect(results.outputs.Out.toString()).toStrictEqual("01");
+  expect(results.outputs.Out?.toString()).toStrictEqual("01");
 });
 
 test("4 to 1 mux select 1", () => {
@@ -61,7 +61,7 @@ test("4 to 1 mux select 1", () => {
     M3: "00",
     C0: "01",
   });
-  expect(results.outputs.Out.toString()).toStrictEqual("10");
+  expect(results.outputs.Out?.toString()).toStrictEqual("10");
 });
 
 test("4 to 1 mux select 2", () => {
@@ -72,7 +72,7 @@ test("4 to 1 mux select 2", () => {
     M3: "00",
     C0: "10",
   });
-  expect(results.outputs.Out.toString()).toStrictEqual("11");
+  expect(results.outputs.Out?.toString()).toStrictEqual("11");
 });
 
 test("4 to 1 mux select 3", () => {
@@ -83,6 +83,6 @@ test("4 to 1 mux select 3", () => {
     M3: "00",
     C0: "11",
   });
-  expect(results.outputs.Out.toString()).toStrictEqual("00");
+  expect(results.outputs.Out?.toString()).toStrictEqual("00");
 });
 

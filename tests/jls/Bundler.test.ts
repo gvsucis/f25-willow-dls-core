@@ -50,7 +50,7 @@ function genTest(output: BitString) {
       InputA5_7: output.bitSlice(5, 8),
     });
 
-    expect(results.outputs.OutputA.toString()).toBe(output.toString());
+    expect(results.outputStrings.OutputA).toBe(output.toString());
   };
 }
 

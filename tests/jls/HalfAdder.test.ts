@@ -51,9 +51,9 @@ const truthTable = [
 
 function genTest(inputs : any, outputs :any) {
   return () => {
-    const actualOutputs = circuit.run(inputs).outputs;
-    expect(actualOutputs.Sum.toString()).toStrictEqual(outputs.Sum);
-    expect(actualOutputs.Carry.toString()).toStrictEqual(outputs.Carry);
+    const actualOutputs = circuit.run(inputs).outputStrings;
+    expect(actualOutputs.Sum).toStrictEqual(outputs.Sum);
+    expect(actualOutputs.Carry).toStrictEqual(outputs.Carry);
   };
 }
 
