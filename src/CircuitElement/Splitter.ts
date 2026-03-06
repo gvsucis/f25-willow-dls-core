@@ -26,6 +26,10 @@ import { BitString } from "../BitString";
 import { CircuitBus } from "../CircuitBus";
 import { CircuitElement } from "../CircuitElement";
 import { LogLevel } from "../CircuitLogger";
+import { FileLogger } from "../CircuitLogger/FileLogger";
+
+  const logger = new FileLogger("splitter.log");
+  logger.setLevel(LogLevel.TRACE);
 
 /**
  * A bi-directional bus splitter that either combines multiple buses into
@@ -112,7 +116,9 @@ export class Splitter extends CircuitElement {
         for (let j = bitIndices.length - 1; j >= 0; j--) {
           const bitIndex = bitIndices[j];
           const stringIndex = inputWidth - 1 - bitIndex;
-          expectedValue += input.substring(stringIndex, stringIndex + 1).toString();
+          expectedValue += input
+            .substring(stringIndex, stringIndex + 1)
+            .toString();
         }
 
         if (expectedValue !== output.toString()) {
@@ -127,7 +133,19 @@ export class Splitter extends CircuitElement {
   }
 
   #propOut(input: BitString) {
-    this.log(LogLevel.TRACE, `Splitting input ${input} into outputs...`);
+    this.log(LogLevel.TRACE, `Splitting input ${input} into ${super.getOutputs().length} outputs...`);
+
+    for (const opt of super.getOutputs()) {
+      if (opt) {
+        this.log(
+          LogLevel.TRACE,
+          `An output with width ${opt.getWidth()} and ${opt.getElements().length} connected elements`
+        );
+      } else {
+        this.log(LogLevel.TRACE, 'An undefined element');
+      }
+    }
+    this.log(LogLevel.TRACE, 'End of outputs');
 
     if (this.#bitMappings) {
       // Non-contiguous bit extraction mode: use bit mappings
@@ -147,8 +165,15 @@ export class Splitter extends CircuitElement {
 
         const bitIndices = this.#bitMappings[i];
         const output = super.getOutputs().slice(1)[i];
+        this.log(
+          LogLevel.TRACE,
+          `i is ${i}. Length is ${super.getOutputs().slice(1).length}`,
+        );
 
-        this.log(LogLevel.TRACE, `Extracting bits ${bitIndices.join(',')} from ${input}...`);
+        this.log(
+          LogLevel.TRACE,
+          `Extracting bits ${bitIndices.join(",")} from ${input}...`
+        );
 
         // Extract the specified bits and concatenate them
         // bitIndices contain logical bit positions (0 = LSB, 7 = MSB)
@@ -165,7 +190,7 @@ export class Splitter extends CircuitElement {
         const bitString = new BitString(value);
         this.log(
           LogLevel.TRACE,
-          `Got value: ${bitString} (width = ${bitString.getWidth()})`,
+          `Got value: ${bitString} (width = ${bitString.getWidth()})`
         );
         this.log(LogLevel.TRACE, `Output bus width: ${output.getWidth()}`);
         output.setValue(bitString);
@@ -180,11 +205,14 @@ export class Splitter extends CircuitElement {
         const split = this.#split[i];
         const output = super.getOutputs().slice(1)[i];
 
-        this.log(LogLevel.TRACE, `Computing ${input}[${off}:${off + split}]...`);
+        this.log(
+          LogLevel.TRACE,
+          `Computing ${input}[${off}:${off + split}]...`
+        );
         const value = input.substring(off, off + split);
         this.log(
           LogLevel.TRACE,
-          `Got value: ${value} (width = ${value.getWidth()})`,
+          `Got value: ${value} (width = ${value.getWidth()})`
         );
         this.log(LogLevel.TRACE, `Output bus width: ${output.getWidth()}`);
         output.setValue(value);
@@ -197,7 +225,10 @@ export class Splitter extends CircuitElement {
   }
 
   #propIn() {
-    const outputs = super.getOutputs().slice(1).map((o) => o.getValue());
+    const outputs = super
+      .getOutputs()
+      .slice(1)
+      .map((o) => o.getValue());
     this.log(LogLevel.TRACE, `Combining outputs ${outputs} into input...`);
 
     if (this.#bitMappings) {
@@ -228,7 +259,7 @@ export class Splitter extends CircuitElement {
 
         if (val.getWidth() != bitIndices.length) {
           throw new Error(
-            `SplitterElement bus width error: Output ${i} received ${val.getWidth()}-bit value but expected ${bitIndices.length} bits.`,
+            `SplitterElement bus width error: Output ${i} received ${val.getWidth()}-bit value but expected ${bitIndices.length} bits.`
           );
         }
 
@@ -239,9 +270,12 @@ export class Splitter extends CircuitElement {
           const bitIndex = bitIndices[bitIndices.length - 1 - j];
           const bitValue = valStr[j];
 
-          if (inputBits[bitIndex] !== null && inputBits[bitIndex] !== bitValue) {
+          if (
+            inputBits[bitIndex] !== null &&
+            inputBits[bitIndex] !== bitValue
+          ) {
             throw new Error(
-              `SplitterElement conflict: Bit ${bitIndex} is being set to both '${inputBits[bitIndex]}' and '${bitValue}'.`,
+              `SplitterElement conflict: Bit ${bitIndex} is being set to both '${inputBits[bitIndex]}' and '${bitValue}'.`
             );
           }
 
@@ -269,7 +303,7 @@ export class Splitter extends CircuitElement {
 
         if (output.getWidth() != split) {
           throw new Error(
-            `SplitterElement bus width error: Received ${output.getWidth()}-bit value on ${split}-bit bus.`,
+            `SplitterElement bus width error: Received ${output.getWidth()}-bit value on ${split}-bit bus.`
           );
         }
 
@@ -308,7 +342,12 @@ export class Splitter extends CircuitElement {
    * bit extraction where each output can extract arbitrary bits from the input. Each inner
    * array contains the bit indices (from high to low) for that output.
    */
-  constructor(split: number[], input: CircuitBus, outputs: CircuitBus[], bitMappings?: number[][]) {
+  constructor(
+    split: number[],
+    input: CircuitBus,
+    outputs: CircuitBus[],
+    bitMappings?: number[][]
+  ) {
     // This is a bi-directional element, so it's behavior depends on whether
     // the input changed (split input into outputs) or an output changed (combine
     // outputs into input.)
@@ -318,15 +357,40 @@ export class Splitter extends CircuitElement {
     // the abomination which is below.
     super("SplitterElement", [input, ...outputs], [input, ...outputs]);
 
+    console.log(`Splitter constructor using =>${this.getId()}<=`);
+
+    /*
     if (split.length != outputs.length) {
       throw new Error(
         `Splitter: split array must be the same length as the outputs array: ${split.length} != ${outputs.length}`,
       );
     }
+    */
+    logger.log(LogLevel.TRACE, 'Splitter', `XXXXXXXXXXXXXXX`);
+    if (split.length > outputs.length) {
+      logger.log(
+        LogLevel.TRACE,
+        "Splitter",
+        `There are more split outputs ${split.length} than actual outputs ${outputs.length}`
+      );
+      for (const [index, opt] of outputs.entries()) {
+        logger.log(
+          LogLevel.TRACE,
+          "Splitter",
+          `Output ${index} connected ${opt.getElements().length} elements. Width  ${opt.getWidth()}`
+        );
+      }
+    }
+
+    if (split.length < outputs.length) {
+      throw new Error(
+        `Splitter: There are more outputs (${outputs.length}) than output groups (${split.length})`
+      );
+    }
 
     if (bitMappings && bitMappings.length !== split.length) {
       throw new Error(
-        `Splitter: bitMappings array must be the same length as split array: ${bitMappings.length} != ${split.length}`,
+        `Splitter: bitMappings array must be the same length as split array: ${bitMappings.length} != ${split.length}`
       );
     }
 
@@ -360,7 +424,7 @@ export class Splitter extends CircuitElement {
       } else {
         this.log(
           LogLevel.TRACE,
-          `No input value and there are missing output values.`,
+          `No input value and there are missing output values.`
         );
         this.log(LogLevel.TRACE, `Doing nothing.`);
       }
@@ -368,20 +432,23 @@ export class Splitter extends CircuitElement {
       if (this.#nullOutputs(outputs)) {
         this.log(
           LogLevel.TRACE,
-          `Input provided, and some outputs are missing.`,
+          `Input provided, and some outputs are missing.`
         );
         this.#propOut(input);
         [this.#prevInput, this.#prevOutputs] = this.#getValues();
       } else {
         this.log(
           LogLevel.TRACE,
-          `Both input and all outputs are present, seeing what changed...`,
+          `Both input and all outputs are present, seeing what changed...`
         );
 
         // First check if input and outputs are already consistent
         // If they are, we don't need to propagate anything
         if (this.#areConsistent(input, outputs)) {
-          this.log(LogLevel.TRACE, `Input and outputs are consistent, NOT propagating.`);
+          this.log(
+            LogLevel.TRACE,
+            `Input and outputs are consistent, NOT propagating.`
+          );
           [this.#prevInput, this.#prevOutputs] = this.#getValues();
           return this.getPropagationDelay();
         }
@@ -389,19 +456,19 @@ export class Splitter extends CircuitElement {
         const inputUpdate = this.getInputs()[0].getLastUpdate();
         const outputUpdate = this.#earliestOutput();
 
-        const inputChanged = this.#prevInput === null || !input.equals(this.#prevInput);
-        const outputsChanged = this.#prevOutputs === null || !this.#bitStringsEqual(
-          this.#prevOutputs,
-          outputs,
-        );
+        const inputChanged =
+          this.#prevInput === null || !input.equals(this.#prevInput);
+        const outputsChanged =
+          this.#prevOutputs === null ||
+          !this.#bitStringsEqual(this.#prevOutputs, outputs);
 
         this.log(
           LogLevel.TRACE,
-          `Inputs changed: ${inputChanged}, last update = ${inputUpdate}`,
+          `Inputs changed: ${inputChanged}, last update = ${inputUpdate}`
         );
         this.log(
           LogLevel.TRACE,
-          `Outputs changed: ${outputsChanged}, last update = ${outputUpdate}`,
+          `Outputs changed: ${outputsChanged}, last update = ${outputUpdate}`
         );
 
         if (inputChanged && inputUpdate < outputUpdate) {
@@ -411,7 +478,7 @@ export class Splitter extends CircuitElement {
         } else {
           if (inputUpdate == outputUpdate) {
             throw new Error(
-              `Splitter contention: Both inputs and outputs were set and have changed at the same time but are inconsistent: ${input} vs ${JSON.stringify(outputs)}`,
+              `Splitter contention: Both inputs and outputs were set and have changed at the same time but are inconsistent: ${input} vs ${JSON.stringify(outputs)}`
             );
           } else {
             if (inputUpdate > outputUpdate) {

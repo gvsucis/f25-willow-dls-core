@@ -1,7 +1,5 @@
 /*
- * Copyright (c) 2025 Jordan Bancino <jordan@bancino.net>
- * Copyright (c) 2025 Austin Hargis <hargisa@mail.gvsu.edu>
- * Copyright (c) 2025 Aaron MacDougall <macdouaa@mail.gvsu.edu>
+ * Copyright (c) 2025 Zachary Kurmas
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -27,39 +25,41 @@ import { BitString, Circuit, loadCircuit } from "../../src";
 import { JLSLoader } from "../../src/CircuitLoader/JLSLoader";
 import { FileLogger } from "../../src/CircuitLogger/FileLogger";
 import { LogLevel } from "../../src/CircuitLogger";
+import { MainCircuitRunResult } from "../../src/Circuit";
 
 let circuit: Circuit;
 
 beforeAll(async () => {
-  // const logger = new FileLogger("jls.log");
-  // logger.setLevel(LogLevel.TRACE);
+  const logger = new FileLogger("jls.log");
+  logger.setLevel(LogLevel.TRACE);
 
   circuit = await loadCircuit(
     JLSLoader,
-    "tests/jls/Splitter.jls",
-    "Splitter",
-    // logger,
+    "tests/jls/SplitterUnusedBits.jls",
+    "SplitterUnusedBits",
+    logger
   );
 });
 
 function genTest(input: BitString) {
   return () => {
     const results = circuit.run({
-      SplitterInput: input,
+      Input: input,
     });
 
-    expect(results.outputs.SplitterOutput.toString()).toBe(input.toString());
+    const outputs = results.outputStrings;
+
+    expect(outputs.Low).toBe(input.bitSlice(0, 1).toString());
+    expect(outputs.Middle).toBe(input.bitSlice(4, 5).toString());
+    expect(outputs.High).toBe(input.bitSlice(7, 8).toString());
   };
 }
 
-let input = BitString.low(8);
-
-while (true) {
-  test(`Splitter: ${input}`, genTest(input));
-
-  input = input.add("00000001");
-  // Overflow
-  if (input.toString() === "00000000") {
-    break;
-  }
-}
+test("Unused split bits 00000000", genTest(new BitString("00000000")));
+test("Unused split bits 00101001", genTest(new BitString("00101001")));
+test("Unused split bits 01010000", genTest(new BitString("01010000")));
+test("Unused split bits 00010001", genTest(new BitString("00010001")));
+test("Unused split bits 10000000", genTest(new BitString("10000000")));
+test("Unused split bits 10000001", genTest(new BitString("10000001")));
+test("Unused split bits 10010000", genTest(new BitString("10010000")));
+test("Unused split bits 10010001", genTest(new BitString("00010001")));

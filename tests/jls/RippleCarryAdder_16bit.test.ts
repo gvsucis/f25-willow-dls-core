@@ -40,7 +40,7 @@ beforeAll(async () => {
       JLSLoader,
       "tests/jls/rippleCarryAdder_16bit.jls",
       "UnsignedFullAdder_16bit",
-      logger,
+      logger
     );
     console.log('Circuit loaded successfully');
   } catch (error) {

@@ -83,7 +83,7 @@ while (true) {
   test(`Splitter: ${input}`, genTest(input));
   input = input.add("00000001");
   // Overflow
-  if (input.toString() == "00000000") {
+  if (input.toString() == "00000001") {
     break;
   }
 }

@@ -230,7 +230,7 @@ export abstract class CircuitLogger {
  * added via {@link propagateLoggersTo} and will be affected by calls to {@link attachLogger}
  * and {@link detachLogger} on parent objects.
  */
-export abstract class CircuitLoggable {
+export abstract class   CircuitLoggable {
   #subsystem: string;
   #loggers: Set<CircuitLogger> = new Set([]);
   #children: Set<CircuitLoggable> = new Set([]);
